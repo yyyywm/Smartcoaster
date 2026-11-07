@@ -10,11 +10,11 @@ from .dpi import enable_native_dpi
 enable_native_dpi()
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 from .model import HydrationCore, Settings
 from .storage import Store
-from .transport import DemoFeed
+from .transport import DemoFeed, SerialFeed, available_ports
 
 
 BG = "#101820"
@@ -32,6 +32,7 @@ class App(tk.Tk):
         super().__init__()
         self.store = store
         self.feed = feed
+        self.demo_mode = isinstance(feed, DemoFeed)
         self.messages = messages
         settings = store.load_settings()
         last, alert, progress = store.load_runtime()
@@ -93,6 +94,22 @@ class App(tk.Tk):
         tk.Label(top, textvariable=self.conn_var, bg=PANEL_ALT, fg=MUTED,
                  font=("Microsoft YaHei UI", 10), padx=12, pady=7).pack(side="right")
 
+        if not self.demo_mode:
+            devices = tk.Frame(page, bg=BG)
+            devices.pack(fill="x", padx=30, pady=(0, 12))
+            self._label(devices, "连接设备", 10, MUTED).pack(side="left", padx=(0, 10))
+            self.port_var = tk.StringVar()
+            self.port_combo = ttk.Combobox(devices, textvariable=self.port_var,
+                                           state="readonly", width=38)
+            self.port_combo.pack(side="left", padx=(0, 8))
+            tk.Button(devices, text="刷新", command=self._refresh_ports,
+                      bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12).pack(side="left", padx=(0, 8))
+            tk.Button(devices, text="连接", command=self._connect_selected,
+                      bg=ACCENT, fg=BG, relief="flat", padx=14).pack(side="left", padx=(0, 8))
+            tk.Button(devices, text="断开", command=self._disconnect,
+                      bg=PANEL_ALT, fg=TEXT, relief="flat", padx=14).pack(side="left")
+            self._refresh_ports()
+
         content = tk.Frame(page, bg=BG)
         content.pack(fill="both", expand=True, padx=24)
         content.columnconfigure(0, weight=3)
@@ -120,7 +137,7 @@ class App(tk.Tk):
         tk.Label(numbers, textvariable=self.water_note, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 10), wraplength=240,
                  justify="left").pack(anchor="w", pady=(10, 0))
-        if isinstance(self.feed, DemoFeed):
+        if self.demo_mode:
             tk.Button(numbers, text="模拟喝水 150 ml", command=lambda: self.feed.simulate_drink(150),
                       bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12, pady=8).pack(anchor="w", pady=20)
 
@@ -257,23 +274,71 @@ class App(tk.Tk):
         self.store.save_runtime(self.core.last_qualified, self.core.alert_started,
                                 self.core.alert_progress_ml)
 
+    def _refresh_ports(self) -> None:
+        selected = self.port_choices.get(self.port_var.get()) if hasattr(self, "port_choices") else None
+        if selected is None:
+            selected = self.feed.requested_port if self.feed is not None else "auto"
+        self.port_choices = {"自动查找 ESP32-C3": "auto"}
+        try:
+            for port, description in available_ports():
+                self.port_choices[f"{port}  {description}"] = port
+        except (ImportError, OSError) as exc:
+            self.connection_detail = f"读取串口列表失败：{exc}"
+        if selected != "auto" and selected not in self.port_choices.values():
+            self.port_choices[selected] = selected
+        self.port_combo["values"] = list(self.port_choices)
+        self.port_var.set(next(label for label, port in self.port_choices.items() if port == selected))
+
+    def _consume_messages(self, now: datetime, include_connection: bool = True,
+                          limit: int | None = 200) -> None:
+        count = 0
+        while limit is None or count < limit:
+            try:
+                message = self.messages.get_nowait()
+            except queue.Empty:
+                break
+            count += 1
+            if message[0] == "connection":
+                if include_connection:
+                    self.connection = bool(message[1])
+                    self.connection_detail = str(message[2])
+                    if not self.connection:
+                        self.last_frame_at = None
+            elif message[0] == "frame":
+                self._handle_frame(message[1], now)
+
+    def _disconnect(self) -> None:
+        if self.demo_mode:
+            return
+        if self.feed is not None:
+            self.feed.stop()
+            self._consume_messages(datetime.now().astimezone(), include_connection=False, limit=None)
+            self.feed = None
+        self.connection = False
+        self.connection_detail = "已断开"
+        self.last_frame_at = None
+        self.weight_g = None
+        self.device_state = "unknown"
+        self._render()
+
+    def _connect_selected(self) -> None:
+        if self.demo_mode:
+            return
+        selected = self.port_choices.get(self.port_var.get())
+        if selected is None:
+            return
+        self._disconnect()
+        self.connection_detail = "连接中"
+        self.feed = SerialFeed(selected, self.messages)
+        self.feed.start()
+        self._render()
+
     def _tick(self) -> None:
         if self._closing:
             return
         now = datetime.now().astimezone()
         try:
-            for _ in range(200):
-                try:
-                    message = self.messages.get_nowait()
-                except queue.Empty:
-                    break
-                if message[0] == "connection":
-                    self.connection = bool(message[1])
-                    self.connection_detail = str(message[2])
-                    if not self.connection:
-                        self.last_frame_at = None
-                elif message[0] == "frame":
-                    self._handle_frame(message[1], now)
+            self._consume_messages(now)
             if self.core.tick(now, self._connected(now)):
                 self._persist_runtime()
             if self.core.alert_active:
@@ -286,7 +351,7 @@ class App(tk.Tk):
     def _render(self) -> None:
         now = datetime.now().astimezone()
         connected = self._connected(now)
-        self.conn_var.set(f"● {self.connection_detail}" if connected else "● 设备未连接")
+        self.conn_var.set(f"● {self.connection_detail}" if connected else f"● {self.connection_detail[:65]}")
         self.tare_var.set(f"空杯重：{self.core.settings.cup_tare_g:.1f} g" if self.core.settings.cup_tare_g is not None
                           else "尚未记录空杯重")
         water = self.core.water_ml(self.weight_g, self.device_state) if connected else None
@@ -373,7 +438,7 @@ class App(tk.Tk):
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
                     15, MUTED).pack()
-        if isinstance(self.feed, DemoFeed):
+        if self.demo_mode:
             tk.Button(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                       bg=ACCENT, fg=BG, relief="flat", padx=26, pady=10).pack(pady=25)
         self._label(body, "紧急退出：Ctrl + Shift + Q", 10, MUTED).pack(pady=(50, 0))
@@ -417,6 +482,7 @@ class App(tk.Tk):
                 pass
         self._tick_jobs.clear()
         self._hide_alert()
-        self.feed.stop()
+        if self.feed is not None:
+            self.feed.stop()
         self.store.close()
         self.destroy()
