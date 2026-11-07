@@ -43,6 +43,7 @@ class App(tk.Tk):
         self.last_frame_at: datetime | None = None
         self.alert_window: tk.Toplevel | None = None
         self._closing = False
+        self._tick_jobs: list[str] = []
 
         self.title("智能杯垫 · 饮水提醒")
         self.configure(bg=BG)
@@ -56,7 +57,10 @@ class App(tk.Tk):
         self.bind_all("<Control-Shift-Q>", self._emergency_exit)
         self._build()
         self.feed.start()
-        self.after(250, self._tick)
+        self._schedule_tick(250)
+
+    def _schedule_tick(self, delay_ms: int) -> None:
+        self._tick_jobs.append(self.after(delay_ms, self._tick))
 
     def _label(self, parent, text: str, size: int = 11, color: str = TEXT,
                bold: bool = False, **kwargs) -> tk.Label:
@@ -277,7 +281,7 @@ class App(tk.Tk):
             self._render()
         finally:
             if not self._closing:
-                self.after(500, self._tick)
+                self._schedule_tick(500)
 
     def _render(self) -> None:
         now = datetime.now().astimezone()
@@ -289,16 +293,19 @@ class App(tk.Tk):
         if water is not None:
             self.water_var.set(f"{water:.0f} ml")
             self.water_note.set(f"估算剩余水量 · 杯子容量 {self.core.settings.cup_capacity_ml} ml")
+        elif connected and self.device_state == "stable" and self.weight_g is not None:
+            self.water_var.set(f"{self.weight_g:.1f} g")
+            self.water_note.set("杯+水总重。请将空杯放上并记录空杯重，之后才能显示水量。")
         elif not connected:
             self.water_var.set("-- ml")
             self.water_note.set("等待杯垫连接")
-        elif self.core.settings.cup_tare_g is None:
+        elif self.device_state == "no_cup":
             self.water_var.set("-- ml")
-            self.water_note.set("请先放上空杯，并点击“记录空杯重”")
+            self.water_note.set("杯垫上暂未检测到杯子")
         else:
             self.water_var.set("-- ml")
-            self.water_note.set("杯子未稳定放置；当前水量暂不可用")
-        self._draw_water(water)
+            self.water_note.set("正在等待杯子重量稳定")
+        self._draw_water(water, connected and self.device_state == "stable")
 
         confirmed, estimated = self.store.today_totals(now)
         self.today_var.set(f"{confirmed:.0f} ml")
@@ -318,7 +325,7 @@ class App(tk.Tk):
             f"{datetime.fromisoformat(at):%m-%d %H:%M}   {ml:.0f} ml" + (" 估算" if est else "")
             for at, ml, est in recent) if recent else "暂无记录")
 
-    def _draw_water(self, water: float | None) -> None:
+    def _draw_water(self, water: float | None, cup_present: bool) -> None:
         canvas = self.water_canvas
         canvas.delete("all")
         canvas.create_rectangle(43, 24, 168, 235, outline=WATER, width=4)
@@ -330,7 +337,10 @@ class App(tk.Tk):
             top = 230 - ratio * 200
             if ratio > 0:
                 canvas.create_rectangle(48, top, 163, 230, fill=WATER, outline="")
-        canvas.create_text(105, 252, text="估算液位", fill=MUTED,
+        elif cup_present:
+            canvas.create_text(105, 130, text="已放杯", fill=ACCENT,
+                               font=("Microsoft YaHei UI", 12, "bold"))
+        canvas.create_text(105, 252, text="估算液位" if water is not None else "杯子状态", fill=MUTED,
                            font=("Microsoft YaHei UI", 9))
 
     def _draw_progress(self, ratio: float) -> None:
@@ -400,6 +410,12 @@ class App(tk.Tk):
         if self._closing:
             return
         self._closing = True
+        for job in self._tick_jobs:
+            try:
+                self.after_cancel(job)
+            except tk.TclError:
+                pass
+        self._tick_jobs.clear()
         self._hide_alert()
         self.feed.stop()
         self.store.close()

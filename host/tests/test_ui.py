@@ -5,12 +5,31 @@ import tempfile
 import tkinter as tk
 import unittest
 
+from coaster_app.model import Settings
 from coaster_app.storage import Store
 from coaster_app.transport import DemoFeed
 from coaster_app.ui import App
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_cup_is_visible_before_empty_cup_calibration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            store.save_settings(Settings(work_start="02:00", work_end="03:00"))
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                app.update()
+                now = datetime.now().astimezone()
+                app.connection = True
+                app.connection_detail = "COM18"
+                app._handle_frame({"status": {"weight_g": 665.4, "state": "stable"}}, now)
+                app._render()
+                self.assertEqual(app.water_var.get(), "665.4 g")
+                self.assertIn("空杯重", app.water_note.get())
+            finally:
+                app._shutdown()
+
     def test_fullscreen_reminder_requires_confirmed_drink(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
