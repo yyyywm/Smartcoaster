@@ -40,17 +40,17 @@ make test        # 或 make test CC=gcc
 
 ## 上位机软件（桌面端 · Tkinter）
 
-USB 串口接收固件 JSON Lines，在本地桌面窗口实时显示重量/状态/喝水量/提醒，
-并下发配置命令（提醒间隔、scale、续杯估算、空载校准、读取配置）。
+USB 串口接收固件 JSON Lines，桌面端提供工作时段全屏饮水提醒、杯中估算水量、
+本机 SQLite 每日统计。提醒设置保存在上位机；杯中水量首次使用须记录空杯重。
 
 ```powershell
 conda create -y -n dsh_coaster python=3.11
 conda activate dsh_coaster
 pip install -r host/requirements.txt   # pyserial
-cd host
-python smart_coaster.py                # 无板：模拟器
-python smart_coaster.py --list         # 连真机：先列端口
-python smart_coaster.py --port COM18   # 再连板子
+python host/smart_coaster.py --simulate    # 无板演示
+python host/smart_coaster.py --list        # 查看端口
+python host/smart_coaster.py              # 自动连接 ESP32-C3
+python host/smart_coaster.py --port COM18  # 或指定端口
 ```
 
 详见 [host/README.md](host/README.md)。
@@ -113,5 +113,5 @@ STABLE --在位重量迁移(水壶加水/吸管喝)--> SETTLING --> STABLE(结�
 │   ├── main/
 │   │   └── coaster_main.c  主程序：HX711 采样 ~10Hz → 状态机 → JSON 上报
 │   └── tests/         宿主侧单元测试（无需 IDF/硬件）：状态机 + 协议格式
-└── host/              桌面端上位机（Tkinter）：串口接收 JSON → 实时面板 + 下发命令
+└── host/              桌面端上位机：提醒规则 + SQLite + 串口 + Tk 界面
 ```
