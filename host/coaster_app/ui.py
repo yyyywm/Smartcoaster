@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime
 import math
 import queue
+import time
 
 from .dpi import enable_native_dpi
 
 enable_native_dpi()
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 from .model import HydrationCore, Settings
 from .storage import Store
@@ -45,6 +46,7 @@ class App(tk.Tk):
         self.alert_window: tk.Toplevel | None = None
         self._closing = False
         self._tick_jobs: list[str] = []
+        self.tare_pending: tuple[float, float] | None = None
 
         self.title("智能杯垫 · 饮水提醒")
         self.configure(bg=BG)
@@ -190,11 +192,18 @@ class App(tk.Tk):
         tk.Button(settings_panel, text="保存设置", command=self._save_settings,
                   bg=ACCENT, fg=BG, activebackground=ACCENT, relief="flat",
                   font=("Microsoft YaHei UI", 10, "bold"), pady=8).pack(fill="x", pady=(12, 8))
-        tk.Button(settings_panel, text="空杯放上后，记录空杯重", command=self._calibrate_cup,
-                  bg=PANEL_ALT, fg=TEXT, relief="flat", pady=7).pack(fill="x")
+        self.tare_button = tk.Button(settings_panel, text="空杯放上后，记录空杯重",
+                                     command=self._calibrate_cup,
+                                     bg=PANEL_ALT, fg=TEXT, relief="flat", pady=7)
+        self.tare_button.pack(fill="x")
+        self.action_status = tk.StringVar(value="")
+        self.action_status_label = tk.Label(settings_panel, textvariable=self.action_status,
+                                            bg=PANEL, fg=ACCENT,
+                                            font=("Microsoft YaHei UI", 9), anchor="w")
+        self.action_status_label.pack(fill="x", pady=(8, 0))
         self.tare_var = tk.StringVar(value="")
         tk.Label(settings_panel, textvariable=self.tare_var, bg=PANEL, fg=MUTED,
-                 font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(8, 0))
+                 font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(4, 0))
 
         recent_panel = self._panel(right, "最近饮水")
         recent_panel.pack(fill="x")
@@ -222,24 +231,39 @@ class App(tk.Tk):
             )
             settings.validate()
         except ValueError as exc:
-            messagebox.showerror("设置无效", str(exc), parent=self)
+            self._set_action_status(f"设置无效：{exc}", error=True)
             return
         self.store.save_settings(settings)
         self.core.settings = settings
         self._render()
-        messagebox.showinfo("已保存", "设置已保存到本机。", parent=self)
+        self._set_action_status("已保存设置")
+
+    def _set_action_status(self, message: str, error: bool = False) -> None:
+        self.action_status.set(message)
+        self.action_status_label.configure(fg=ALERT if error else ACCENT)
+
+    def _reset_tare_confirmation(self) -> None:
+        self.tare_pending = None
+        self.tare_button.configure(text="空杯放上后，记录空杯重")
 
     def _calibrate_cup(self) -> None:
         if (not self._connected(datetime.now().astimezone()) or
                 self.device_state != "stable" or self.weight_g is None or self.weight_g <= 0):
-            messagebox.showwarning("无法记录", "请先把空杯放在杯垫上，等待重量稳定。", parent=self)
+            self._reset_tare_confirmation()
+            self._set_action_status("请先把空杯放在杯垫上，等待重量稳定。", error=True)
             return
-        if not messagebox.askyesno("记录空杯重", f"确认杯子已倒空？当前总重 {self.weight_g:.1f} g。",
-                                   parent=self):
+        pending = self.tare_pending
+        if (pending is None or time.monotonic() - pending[1] > 30
+                or abs(self.weight_g - pending[0]) > 2):
+            self.tare_pending = (self.weight_g, time.monotonic())
+            self.tare_button.configure(text=f"确认空杯，记录 {self.weight_g:.1f} g")
+            self._set_action_status("确认杯子已倒空后，再点击一次记录。")
             return
         self.core.settings.cup_tare_g = round(self.weight_g, 1)
         self.store.save_settings(self.core.settings)
+        self._reset_tare_confirmation()
         self._render()
+        self._set_action_status(f"已记录空杯重：{self.core.settings.cup_tare_g:.1f} g")
 
     def _connected(self, now: datetime) -> bool:
         return (self.connection and self.last_frame_at is not None

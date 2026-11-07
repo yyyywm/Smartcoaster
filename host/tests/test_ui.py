@@ -3,6 +3,7 @@ from pathlib import Path
 import queue
 import tempfile
 import tkinter as tk
+from tkinter import messagebox
 import unittest
 from unittest.mock import patch
 
@@ -27,6 +28,38 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_settings_actions_return_with_inline_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            try:
+                app = App(store, DemoFeed(messages), messages)
+            except tk.TclError:
+                store.close()
+                self.skipTest("图形桌面不可用")
+            try:
+                with patch.object(messagebox, "showinfo", side_effect=AssertionError("模态提示阻塞界面")), \
+                     patch.object(messagebox, "showwarning", side_effect=AssertionError("模态警告阻塞界面")), \
+                     patch.object(messagebox, "askyesno", side_effect=AssertionError("模态确认阻塞界面")):
+                    app._save_settings()
+                    self.assertIn("已保存", app.action_status.get())
+                    app._calibrate_cup()
+                    self.assertIn("等待重量稳定", app.action_status.get())
+                    now = datetime.now().astimezone()
+                    app.connection = True
+                    app.last_frame_at = now
+                    app.device_state = "stable"
+                    app.weight_g = 120.0
+                    app._calibrate_cup()
+                    self.assertIsNone(app.core.settings.cup_tare_g)
+                    app.weight_g = 125.0
+                    app._calibrate_cup()
+                    self.assertIsNone(app.core.settings.cup_tare_g)
+                    app._calibrate_cup()
+                    self.assertEqual(app.core.settings.cup_tare_g, 125.0)
+            finally:
+                app._shutdown()
+
     def test_device_selection_refresh_connect_and_disconnect(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
