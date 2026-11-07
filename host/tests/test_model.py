@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -34,6 +35,16 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(core.water_ml(80, "stable"), 0)
         self.assertIsNone(core.water_ml(350, "no_cup"))
 
+    def test_full_cup_calibration_requires_empty_cup_and_sets_capacity(self):
+        with self.assertRaises(ValueError):
+            Settings(cup_full_g=620).validate()
+        with self.assertRaises(ValueError):
+            Settings(cup_tare_g=120, cup_full_g=150).validate()
+        settings = Settings(cup_tare_g=120, cup_full_g=620)
+        settings.validate()
+        self.assertEqual(settings.calibrated_capacity_ml, 500)
+        self.assertEqual(Settings.from_dict(settings.to_dict()).cup_full_g, 620)
+
 
 class ReminderTests(unittest.TestCase):
     def test_waits_for_work_time_and_device(self):
@@ -62,6 +73,41 @@ class ReminderTests(unittest.TestCase):
 
 
 class StorageTests(unittest.TestCase):
+    def test_manage_and_export_records_without_changing_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = Store(root / "coaster.db")
+            store.save_settings(Settings(interval_min=30))
+            store.add_drink(at(10), 100, False)
+            store.add_drink(at(11), 40, True)
+            store.add_drink(at(10, day=8), 50, False)
+            rows = store.list_drinks()
+            self.assertEqual([row[3] for row in rows], [False, True, False])
+            self.assertEqual(store.export_csv(root / "records.csv"), 3)
+            self.assertIn("estimated", (root / "records.csv").read_text(encoding="utf-8-sig"))
+            self.assertEqual(store.delete_drinks([rows[1][0]]), 1)
+            self.assertEqual(store.today_totals(at(12)), (100, 0))
+            self.assertEqual(store.clear_drinks(at(12).date().isoformat()), 1)
+            self.assertEqual(store.today_totals(at(12, day=8)), (50, 0))
+            self.assertEqual(store.clear_drinks(), 1)
+            self.assertEqual(store.load_settings().interval_min, 30)
+            store.close()
+
+    def test_existing_database_records_remain_manageable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "old.db"
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE drinks (id INTEGER PRIMARY KEY, at TEXT NOT NULL, "
+                         "day TEXT NOT NULL, ml REAL NOT NULL, estimated INTEGER NOT NULL)")
+            conn.execute("INSERT INTO drinks(at,day,ml,estimated) VALUES(?,?,?,?)",
+                         (at(10).isoformat(), at(10).date().isoformat(), 100, 0))
+            conn.commit()
+            conn.close()
+            store = Store(path)
+            self.assertEqual(store.list_drinks()[0][2], 100)
+            self.assertEqual(store.clear_drinks(), 1)
+            store.close()
+
     def test_daily_lower_bound_and_runtime_survive_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "coaster.db"

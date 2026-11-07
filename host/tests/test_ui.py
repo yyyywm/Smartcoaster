@@ -19,6 +19,7 @@ class FakeSerialFeed:
         self.messages = messages
         self.started = False
         self.stopped = False
+        self.commands = []
 
     def start(self):
         self.started = True
@@ -26,12 +27,97 @@ class FakeSerialFeed:
     def stop(self):
         self.stopped = True
 
+    def send_command(self, command):
+        self.commands.append(command)
+
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_device_calibration_is_loaded_when_local_settings_have_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM7", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[("COM7", "ESP32-C3")]):
+                app = App(store, feed, messages)
+            try:
+                messages.put(("connection", True, "COM7"))
+                app._consume_messages(datetime.now().astimezone())
+                self.assertEqual(feed.commands[-1], {"cmd": "get_config"})
+                app._handle_frame({"config": {"empty_cup_g": 120.0,
+                                               "full_cup_g": 620.0}}, datetime.now().astimezone())
+                self.assertEqual(store.load_settings().calibrated_capacity_ml, 500)
+                self.assertEqual(app.core.settings.cup_tare_g, 120)
+            finally:
+                app.update_idletasks()
+                app._shutdown()
+
+    def test_empty_and_full_calibration_sync_to_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM7", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[("COM7", "ESP32-C3")]):
+                app = App(store, feed, messages)
+            try:
+                now = datetime.now().astimezone()
+                app.connection = True
+                app.last_frame_at = now
+                app.device_state = "stable"
+                app.weight_g = 120.0
+                app._calibrate_cup()
+                app._calibrate_cup()
+                self.assertEqual(feed.commands[-1],
+                                 {"cmd": "set_cup_calibration", "empty_g": 120.0, "full_g": 0})
+                app.weight_g = 620.0
+                app._calibrate_full()
+                app._calibrate_full()
+                self.assertEqual(feed.commands[-1],
+                                 {"cmd": "set_cup_calibration", "empty_g": 120.0, "full_g": 620.0})
+                self.assertEqual(app.core.settings.calibrated_capacity_ml, 500)
+                self.assertEqual(store.load_settings().cup_full_g, 620)
+                app._handle_frame({"ack": "set_cup_calibration", "ok": 0}, now)
+                app._render()
+                self.assertIn("标定未同步", app.conn_var.get())
+                app._handle_frame({"ack": "set_cup_calibration", "ok": 1}, now)
+                app._render()
+                self.assertNotIn("标定未同步", app.conn_var.get())
+            finally:
+                app.update_idletasks()
+                app._shutdown()
+
+    def test_data_view_requires_second_click_before_deletion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            now = datetime.now().astimezone()
+            store.add_drink(now, 100, False)
+            store.add_drink(now, 50, False)
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                app._show_view("records")
+                export_path = Path(directory) / "drinks.csv"
+                with patch("coaster_app.ui.filedialog.asksaveasfilename",
+                           return_value=str(export_path)):
+                    app._export_records()
+                self.assertIn("100", export_path.read_text(encoding="utf-8-sig"))
+                selected = app.records_tree.get_children()[0]
+                app.records_tree.selection_set(selected)
+                app._delete_selected()
+                self.assertEqual(store.today_totals(now), (150, 0))
+                app._delete_selected()
+                self.assertEqual(store.today_totals(now), (100, 0))
+                app._clear_records("all")
+                self.assertEqual(store.today_totals(now), (100, 0))
+                app._clear_records("all")
+                self.assertEqual(store.today_totals(now), (0, 0))
+            finally:
+                app.update_idletasks()
+                app._shutdown()
+
     def test_dashboard_fits_without_scroll_at_minimum_window_size(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
-            for _ in range(5):
+            for _ in range(20):
                 store.add_drink(datetime.now().astimezone(), 120, False)
             messages = queue.Queue()
             feed = FakeSerialFeed("auto", messages)
@@ -43,31 +129,33 @@ class ReminderWindowTests(unittest.TestCase):
                     self.skipTest("图形桌面不可用")
                 try:
                     app.geometry("1100x600")
-                    app._render()
-                    app._set_action_status("请先把空杯放在杯垫上，等待重量稳定。", error=True)
-                    app.update()
-
                     def descendants(widget):
                         for child in widget.winfo_children():
                             yield child
                             yield from descendants(child)
 
-                    widgets = list(descendants(app))
-                    self.assertFalse(any(isinstance(widget, tk.Scrollbar) for widget in widgets))
-                    left = app.winfo_rootx()
-                    top = app.winfo_rooty()
-                    right = left + app.winfo_width()
-                    bottom = top + app.winfo_height()
-                    for widget in widgets:
-                        if widget.winfo_ismapped():
-                            self.assertGreaterEqual(widget.winfo_rootx(), left,
-                                                    f"控件超出窗口：{widget}")
-                            self.assertGreaterEqual(widget.winfo_rooty(), top,
-                                                    f"控件超出窗口：{widget}")
-                            self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), right,
-                                                 f"控件超出窗口：{widget}")
-                            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), bottom,
-                                                 f"控件超出窗口：{widget}")
+                    for view in ("overview", "settings", "records"):
+                        with self.subTest(view=view):
+                            app._show_view(view)
+                            app._render()
+                            app._set_action_status("请先把空杯放在杯垫上，等待重量稳定。", error=True)
+                            app.update()
+                            widgets = list(descendants(app))
+                            self.assertFalse(any(isinstance(widget, tk.Scrollbar) for widget in widgets))
+                            left = app.winfo_rootx()
+                            top = app.winfo_rooty()
+                            right = left + app.winfo_width()
+                            bottom = top + app.winfo_height()
+                            for widget in widgets:
+                                if widget.winfo_ismapped():
+                                    self.assertGreaterEqual(widget.winfo_rootx(), left,
+                                                            f"控件超出窗口：{widget}")
+                                    self.assertGreaterEqual(widget.winfo_rooty(), top,
+                                                            f"控件超出窗口：{widget}")
+                                    self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), right,
+                                                         f"控件超出窗口：{widget}")
+                                    self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), bottom,
+                                                         f"控件超出窗口：{widget}")
                 finally:
                     app.update_idletasks()
                     app._shutdown()
@@ -142,6 +230,9 @@ class ReminderWindowTests(unittest.TestCase):
                     app.port_var.set("自动查找 ESP32-C3")
                     app._connect_selected()
                     self.assertEqual(app.feed.requested_port, "auto")
+                    app._toggle_connection()
+                    self.assertIsNone(app.feed)
+                    self.assertEqual(app.connect_button.cget("text"), "连接设备")
                 finally:
                     app.update_idletasks()
                     app._shutdown()

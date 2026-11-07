@@ -23,6 +23,7 @@ class Settings:
     daily_goal_ml: int = 2000
     cup_capacity_ml: int = 500
     cup_tare_g: float | None = None
+    cup_full_g: float | None = None
 
     def validate(self) -> None:
         if parse_clock(self.work_start) == parse_clock(self.work_end):
@@ -41,6 +42,17 @@ class Settings:
                     or not math.isfinite(self.cup_tare_g)
                     or not 0 <= self.cup_tare_g <= 5000):
                 raise ValueError("空杯重须在 0–5000 g 之间")
+        if self.cup_full_g is not None:
+            if (self.cup_tare_g is None or not isinstance(self.cup_full_g, (int, float))
+                    or not math.isfinite(self.cup_full_g)
+                    or not self.cup_tare_g + 50 <= self.cup_full_g <= 8000):
+                raise ValueError("满杯重须比空杯重多至少 50 g，且不超过 8000 g")
+
+    @property
+    def calibrated_capacity_ml(self) -> float | None:
+        if self.cup_tare_g is None or self.cup_full_g is None:
+            return None
+        return self.cup_full_g - self.cup_tare_g
 
     def to_dict(self) -> dict:
         self.validate()

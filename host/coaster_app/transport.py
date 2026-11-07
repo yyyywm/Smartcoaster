@@ -3,13 +3,24 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import time
 
 
 def available_ports() -> list[tuple[str, str]]:
     from serial.tools import list_ports
-    return [(port.device, port.description) for port in list_ports.comports()]
+    ports = []
+    for port in list_ports.comports():
+        name = port.device
+        description = (port.description or "串口设备").replace(f"({name})", "").strip()
+        if port.vid == 0x303A and port.pid == 0x1001:
+            description = "ESP32-C3 USB"
+        ports.append((name, description[:42]))
+    def sort_key(item: tuple[str, str]) -> tuple[str, int]:
+        match = re.fullmatch(r"COM(\d+)", item[0], re.IGNORECASE)
+        return ("COM", int(match.group(1))) if match else (item[0], 0)
+    return sorted(ports, key=sort_key)
 
 
 def choose_port(requested: str) -> str | None:
@@ -26,6 +37,7 @@ class SerialFeed:
     def __init__(self, requested_port: str, messages: queue.Queue):
         self.requested_port = requested_port
         self.messages = messages
+        self.commands: queue.Queue[dict] = queue.Queue()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True, name="coaster-serial")
 
@@ -36,6 +48,9 @@ class SerialFeed:
         self.stop_event.set()
         self.thread.join(timeout=2)
 
+    def send_command(self, command: dict) -> None:
+        self.commands.put(command)
+
     def _run(self) -> None:
         import serial
         while not self.stop_event.is_set():
@@ -45,10 +60,18 @@ class SerialFeed:
                 self.stop_event.wait(2)
                 continue
             try:
-                with serial.Serial(port_name, 115200, timeout=0.5) as port:
+                with serial.Serial(port_name, 115200, timeout=0.5, write_timeout=0.5) as port:
                     self.messages.put(("connection", True, port_name))
                     last_frame = time.monotonic()
+                    command_ready_at = last_frame + 1.0
                     while not self.stop_event.is_set():
+                        if time.monotonic() >= command_ready_at:
+                            while True:
+                                try:
+                                    command = self.commands.get_nowait()
+                                except queue.Empty:
+                                    break
+                                port.write((json.dumps(command, separators=(",", ":")) + "\n").encode("utf-8"))
                         if time.monotonic() - last_frame > 10:
                             raise serial.SerialException("10 秒未收到设备数据")
                         data = port.read_until(b"\n", 512)

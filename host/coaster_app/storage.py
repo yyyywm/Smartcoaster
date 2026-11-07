@@ -1,6 +1,7 @@
 """Local SQLite persistence for settings, reminders, and drink events."""
 from __future__ import annotations
 
+import csv
 from datetime import datetime
 import json
 import os
@@ -63,6 +64,38 @@ class Store:
         self.conn.execute("INSERT INTO drinks(at,day,ml,estimated) VALUES(?,?,?,?)",
                           (at.isoformat(), at.date().isoformat(), ml, int(estimated)))
         self.conn.commit()
+
+    def list_drinks(self, limit: int = 200, offset: int = 0) -> list[tuple[int, str, float, bool]]:
+        rows = self.conn.execute(
+            "SELECT id,at,ml,estimated FROM drinks ORDER BY id DESC LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()
+        return [(int(id_), at, float(ml), bool(estimated))
+                for id_, at, ml, estimated in rows]
+
+    def delete_drinks(self, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor = self.conn.execute(f"DELETE FROM drinks WHERE id IN ({placeholders})", ids)
+        self.conn.commit()
+        return cursor.rowcount
+
+    def clear_drinks(self, day: str | None = None) -> int:
+        if day is None:
+            cursor = self.conn.execute("DELETE FROM drinks")
+        else:
+            cursor = self.conn.execute("DELETE FROM drinks WHERE day=?", (day,))
+        self.conn.commit()
+        return cursor.rowcount
+
+    def export_csv(self, path: Path) -> int:
+        rows = self.conn.execute(
+            "SELECT id,at,day,ml,estimated FROM drinks ORDER BY id").fetchall()
+        with path.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.writer(output)
+            writer.writerow(("id", "at", "day", "ml", "estimated"))
+            writer.writerows(rows)
+        return len(rows)
 
     def today_totals(self, now: datetime) -> tuple[float, float]:
         rows = self.conn.execute(
