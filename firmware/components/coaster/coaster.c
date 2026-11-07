@@ -99,7 +99,7 @@ static void emit(struct coaster *h, coaster_event_type_t type,
  * 重量达到新稳定值时的结算。
  * delta = 上次稳定 - 本次稳定：
  *   delta > drink 阈值  → 喝了 delta
- *   delta < -refill 阈值 → 加了水；可选按"喝光"补记估算喝水量
+ *   delta < -refill 阈值 → 只记录加水；离开杯垫时的饮水不可反推
  */
 static void settle(struct coaster *h, float w)
 {
@@ -108,14 +108,24 @@ static void settle(struct coaster *h, float w)
     if (h->have_last) {
         float delta = h->last_stable_g - w;
         if (delta > c->drink_thresh_g) {
-            emit(h, COASTER_EVT_DRINK, w, delta, 0, false);
-        } else if (delta < -c->refill_thresh_g) {
-            if (c->estimate_on_refill && h->min_cup_g > 0) {
-                float est = h->last_stable_g - h->min_cup_g;
-                if (est > c->drink_thresh_g) {
-                    emit(h, COASTER_EVT_DRINK, w, est, 0, true);
-                }
+            bool plausible = true;
+            float amount = delta;
+            if (c->empty_cup_g > 0) {
+                float available = h->last_stable_g - c->empty_cup_g;
+                plausible = available > 0 &&
+                            w >= c->empty_cup_g - c->stable_tol_g &&
+                            delta <= available + c->stable_tol_g;
+                if (amount > available) amount = available;
             }
+            if (c->full_cup_g > 0) {
+                plausible = plausible &&
+                            h->last_stable_g <= c->full_cup_g + c->stable_tol_g &&
+                            w <= c->full_cup_g + c->stable_tol_g;
+            }
+            if (plausible && amount > c->drink_thresh_g) {
+                emit(h, COASTER_EVT_DRINK, w, amount, 0, false);
+            }
+        } else if (delta < -c->refill_thresh_g) {
             emit(h, COASTER_EVT_REFILL, w, 0, -delta, false);
         }
         /* |delta| 在阈值内：只是拿起又放下，不记账 */
@@ -138,7 +148,14 @@ static void settle(struct coaster *h, float w)
 
 coaster_handle_t coaster_create(const coaster_cfg_t *cfg, coaster_event_cb_t cb, void *ctx)
 {
-    if (cfg == NULL || cfg->stable_window < 3 || cfg->scale_counts_per_g <= 0) {
+    if (cfg == NULL || cfg->stable_window < 3 || cfg->scale_counts_per_g <= 0 ||
+        !isfinite(cfg->empty_cup_g) || !isfinite(cfg->full_cup_g) ||
+        cfg->empty_cup_g < 0 || cfg->empty_cup_g > 5000 ||
+        cfg->full_cup_g < 0 || cfg->full_cup_g > 8000) {
+        return NULL;
+    }
+    if (cfg->full_cup_g > 0 && (cfg->empty_cup_g <= 0 ||
+                                cfg->full_cup_g < cfg->empty_cup_g + 50)) {
         return NULL;
     }
     struct coaster *h = calloc(1, sizeof(struct coaster));
@@ -283,6 +300,16 @@ float coaster_min_cup_g(coaster_handle_t h)
     return h->min_cup_g;
 }
 
+float coaster_empty_cup_g(coaster_handle_t h)
+{
+    return h->cfg.empty_cup_g;
+}
+
+float coaster_full_cup_g(coaster_handle_t h)
+{
+    return h->cfg.full_cup_g;
+}
+
 bool coaster_have_last_stable(coaster_handle_t h)
 {
     return h->have_last;
@@ -299,6 +326,8 @@ void coaster_set_scale(coaster_handle_t h, float scale_counts_per_g)
         h->cfg.scale_counts_per_g = scale_counts_per_g;
         h->have_last = false;
         h->min_cup_g = 0;
+        h->cfg.empty_cup_g = 0;
+        h->cfg.full_cup_g = 0;
         h->state = COASTER_STATE_NO_CUP;
         h->above_cnt = h->below_cnt = h->migrate_cnt = 0;
         win_reset(h);
@@ -311,6 +340,8 @@ void coaster_set_baseline(coaster_handle_t h, int32_t raw)
     h->baseline_f = (float)raw;
     h->have_last = false;
     h->min_cup_g = 0;
+    h->cfg.empty_cup_g = 0;
+    h->cfg.full_cup_g = 0;
     h->state = COASTER_STATE_NO_CUP;
     h->above_cnt = h->below_cnt = h->migrate_cnt = 0;
     win_reset(h);
@@ -319,4 +350,19 @@ void coaster_set_baseline(coaster_handle_t h, int32_t raw)
 void coaster_set_estimate_on_refill(coaster_handle_t h, bool enable)
 {
     h->cfg.estimate_on_refill = enable;
+}
+
+bool coaster_set_cup_calibration(coaster_handle_t h, float empty_g, float full_g)
+{
+    if (!isfinite(empty_g) || !isfinite(full_g) || empty_g < 0 || empty_g > 5000 ||
+        full_g < 0 || full_g > 8000 ||
+        (full_g > 0 && (empty_g <= 0 || full_g < empty_g + 50))) {
+        return false;
+    }
+    if (empty_g != h->cfg.empty_cup_g) {
+        h->have_last = false;  /* 换杯或重新标定时不跨杯结算 */
+    }
+    h->cfg.empty_cup_g = empty_g;
+    h->cfg.full_cup_g = full_g;
+    return true;
 }

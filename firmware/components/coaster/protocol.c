@@ -48,12 +48,14 @@ void protocol_send_ack(const char *cmd, bool ok)
 }
 
 void protocol_send_config(float scale, uint32_t reminder_min, bool estimate_on_refill,
-                          int32_t baseline_raw, float min_cup_g)
+                          int32_t baseline_raw, float min_cup_g,
+                          float empty_cup_g, float full_cup_g)
 {
     printf("{\"config\":{\"scale\":%.2f,\"reminder_min\":%" PRIu32
            ",\"estimate_on_refill\":%d,\"baseline_raw\":%" PRId32
-           ",\"min_cup_g\":%.1f}}\n",
-           scale, reminder_min, estimate_on_refill ? 1 : 0, baseline_raw, min_cup_g);
+           ",\"min_cup_g\":%.1f,\"empty_cup_g\":%.1f,\"full_cup_g\":%.1f}}\n",
+           scale, reminder_min, estimate_on_refill ? 1 : 0, baseline_raw,
+           min_cup_g, empty_cup_g, full_cup_g);
 }
 
 /* ---------- 命令接收 ---------- */

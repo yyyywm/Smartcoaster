@@ -2,9 +2,9 @@
 
 基于 ESP32-C3 和 HX711 称重传感器的智能杯垫固件：
 
-- **差值法统计喝水量**：喝水必拿起杯子，杯垫按「拿起前稳定重量 − 放回后稳定重量」结算，无需知道绝对零点
+- **只统计可确认的净减少**：杯垫按「上次稳定重量 − 本次稳定重量」结算；拿杯喝水或在位喝水都适用。补水后重量未减少时不推算期间的饮水量。
 - **喝水提醒**：距上次喝水超过阈值（默认 45 分钟，上位机可配）上报提醒事件
-- **零校准设计**：空载基线、空杯重全部自学习，断电存 NVS，上电无缝续接（杯子上电也在杯垫上也无妨）
+- **两种杯子标定模式**：记录空杯重后，过滤低于空杯重的异常变化；再记录满杯重后，以满杯容量上界过滤其他物体或换杯。标定值写入 NVS。
 - **USB 直连上位机**：USB Serial/JTAG（GPIO18/19）上跑 JSON Lines 协议，一根 USB 线供电 + 通信
 
 ## 接线
@@ -21,7 +21,8 @@
 ```powershell
 & C:\Users\19693\esp\esp-idf\export.ps1
 cd firmware
-idf.py -p COM18 build flash
+idf.py build
+idf.py -p COMx flash  # 用设备管理器中当前的 COM 号替换 COMx
 ```
 
 监视输出：任意串口工具打开 *USB JTAG/serial debug unit (COMx)*，115200 8N1（USB CDC 实际与波特率无关）。
@@ -41,7 +42,7 @@ make test        # 或 make test CC=gcc
 ## 上位机软件（桌面端 · Tkinter）
 
 USB 串口接收固件 JSON Lines，桌面端提供工作时段全屏饮水提醒、杯中估算水量、
-本机 SQLite 每日统计。提醒设置保存在上位机；杯中水量首次使用须记录空杯重。
+本机 SQLite 每日统计。上位机分为总览、设置和数据页；设置页完成空杯/满杯标定，数据页可导出 CSV、删除选中记录及清空今日或全部统计。
 
 ```powershell
 conda create -y -n dsh_coaster python=3.11
@@ -50,7 +51,7 @@ pip install -r host/requirements.txt   # pyserial
 python host/smart_coaster.py --simulate    # 无板演示
 python host/smart_coaster.py --list        # 查看端口
 python host/smart_coaster.py              # 自动连接 ESP32-C3
-python host/smart_coaster.py --port COM18  # 或指定端口
+python host/smart_coaster.py --port COMx   # 或指定当前端口，如 COM18
 ```
 
 详见 [host/README.md](host/README.md)。
@@ -77,7 +78,7 @@ python host/smart_coaster.py --port COM18  # 或指定端口
 {"event":"remind","since_drink_min":46}
 {"status":{"weight_g":350.2,"state":"stable","session_ml":450.0,"since_drink_min":3}}
 {"ack":"set_reminder","ok":1}
-{"config":{"scale":384.70,"reminder_min":45,"estimate_on_refill":1,"baseline_raw":845123,"min_cup_g":215.0}}
+{"config":{"scale":384.70,"reminder_min":45,"estimate_on_refill":0,"baseline_raw":845123,"min_cup_g":215.0,"empty_cup_g":120.0,"full_cup_g":620.0}}
 ```
 
 PC → 设备（每行一条，`\n` 结尾）：
@@ -85,10 +86,12 @@ PC → 设备（每行一条，`\n` 结尾）：
 ```json
 {"cmd":"set_reminder","minutes":45}     // 设置提醒间隔（分钟，0=关闭）
 {"cmd":"set_scale","value":384.7}       // 设置称重校准系数（每克码值）
-{"cmd":"estimate_on_refill","value":true}  // 续杯时是否按"已喝光"估算喝水量
+{"cmd":"set_cup_calibration","empty_g":120.0,"full_g":620.0} // 仅空杯标定时 full_g=0
 {"cmd":"calibrate_empty"}               // 仅在无杯状态接受，手动校准基线
 {"cmd":"get_config"}                    // 查询当前配置
 ```
+
+旧命令 `estimate_on_refill` 会返回 `ok:0`，不再启用无法验证的续杯推算。
 
 ## 工作原理
 
@@ -96,11 +99,13 @@ PC → 设备（每行一条，`\n` 结尾）：
 NO_CUP --放杯(>25g连续0.3s)--> SETTLING --窗口1s内极差<4g--> STABLE(结算)
 STABLE --拿起(<25g连续0.3s)--> NO_CUP，emit cup_removed
 STABLE --在位重量迁移(水壶加水/吸管喝)--> SETTLING --> STABLE(结算)
-结算规则：W上次稳定 − W本次稳定 > 5g → drink；< −15g → refill（并按"已喝光"估算补记 drink）
+结算规则：W上次稳定 − W本次稳定 > 5g → drink；< −15g → refill，不补记饮水
 ```
 
 - 空载基线：`NO_CUP` 状态下自动慢速跟漂（温漂补偿），发现更低空载点快速学习
-- 空杯重：历史最小稳定带杯重量，用于续杯场景估算"喝光"的喝水量
+- 仅空杯标定：重量必须处于空杯重以上，才会把净减少记作饮水
+- 空杯+满杯标定：还要求拿起前和放回后的稳定重量不超过满杯重（容差 4 g）
+- 拿杯后喝水又加满水，若放回重量没有净减少，杯垫无法知道期间喝了多少，因此不记账
 - 状态持久化：每次稳定结算后写入 NVS（包括未达记账阈值的安静结算）；配置变更另行持久化
 
 ## 目录结构

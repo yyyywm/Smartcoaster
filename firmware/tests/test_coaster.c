@@ -8,7 +8,7 @@
  *   - 放杯 → 稳定 → cup_placed
  *   - 拿杯 → NO_CUP → cup_removed
  *   - 差值法喝水结算（拿杯前后重量差）
- *   - 在位喝水（吸管）、在位加水（refill）与续杯估算
+ *   - 在位喝水（吸管）、在位加水（refill）与双模式标定
  *   - 阈值内不记账、getter、set_baseline / set_scale / estimate 开关
  *
  * 编译运行：make test   （或见 tests/README.md）
@@ -331,7 +331,7 @@ static void test_inplace_drink(void)
 
 static void test_refill_estimate(void)
 {
-    TEST_CASE("在位加水（refill）：350g → 500g，并按历史空杯重估算喝光");
+    TEST_CASE("续杯只报 refill，不按历史空杯重估算饮水");
     coaster_cfg_t c;
     default_cfg(&c);
     c.min_cup_g = 215.0f;   /* 历史空杯重；若上次喝光则喝了 350-215=135g */
@@ -350,12 +350,8 @@ static void test_refill_estimate(void)
         CHECK_FLOAT(refill->refill_ml, 150.0f, 1.5f, "加水量应为 150ml");
     }
 
-    coaster_event_t *est = sim_last_of(&s, COASTER_EVT_DRINK);
-    CHECK_TRUE(est != NULL, "开启估算时应有 drink 事件");
-    if (est) {
-        CHECK_TRUE(est->estimated, "续杯估算的 drink 应标记 estimated");
-        CHECK_FLOAT(est->drink_ml, 135.0f, 2.0f, "估算喝水量应为 350-215=135ml");
-    }
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), 0,
+              "补水期间的饮水无法确认，不应产生 drink");
     coaster_destroy(s.h);
 }
 
@@ -380,7 +376,7 @@ static void test_estimate_disabled(void)
 
 static void test_set_estimate_runtime(void)
 {
-    TEST_CASE("运行时 set_estimate_on_refill 开关生效");
+    TEST_CASE("旧估算开关即使开启，也不能凭续杯推算饮水");
     coaster_cfg_t c;
     default_cfg(&c);
     c.min_cup_g = 215.0f;
@@ -389,9 +385,9 @@ static void test_set_estimate_runtime(void)
     sim_idle(&s, 5);
     feed_until(&s, 350.0f, COASTER_STATE_STABLE, 60);
 
-    coaster_set_estimate_on_refill(s.h, false);
+    coaster_set_estimate_on_refill(s.h, true);
     feed_n(&s, 500.0f, 40);
-    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), 0, "关闭后加水不应估算 drink");
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), 0, "开启旧开关也不应估算 drink");
     CHECK_TRUE(sim_last_of(&s, COASTER_EVT_REFILL) != NULL, "仍应有 refill 事件");
     coaster_destroy(s.h);
 }
@@ -827,6 +823,81 @@ static void test_set_baseline_relearn(void)
     coaster_destroy(s.h);
 }
 
+static void test_calibrated_full_cup_counts_only_visible_net_loss(void)
+{
+    TEST_CASE("空杯+满杯标定：拿杯期间净减少可确认，补至满杯不猜饮水");
+    coaster_cfg_t c;
+    default_cfg(&c);
+    c.empty_cup_g = 120.0f;
+    c.full_cup_g = 620.0f;
+    sim_t s;
+    sim_new(&s, &c);
+    sim_idle(&s, 5);
+    feed_until(&s, 600.0f, COASTER_STATE_STABLE, 60);
+    feed_until(&s, 0.0f, COASTER_STATE_NO_CUP, 20);
+    feed_until(&s, 570.0f, COASTER_STATE_STABLE, 60);
+    coaster_event_t *drink = sim_last_of(&s, COASTER_EVT_DRINK);
+    CHECK_TRUE(drink != NULL, "净减少 30g 应记饮水");
+    if (drink) CHECK_FLOAT(drink->drink_ml, 30.0f, 1.5f, "确认 30ml");
+
+    int drink_count = sim_count_of(&s, COASTER_EVT_DRINK);
+    feed_until(&s, 0.0f, COASTER_STATE_NO_CUP, 20);
+    feed_until(&s, 620.0f, COASTER_STATE_STABLE, 60);
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), drink_count,
+              "返回满杯时无法识别途中喝水，不应补记");
+    CHECK_TRUE(sim_last_of(&s, COASTER_EVT_REFILL) != NULL, "应记录净加水");
+    coaster_destroy(s.h);
+}
+
+static void test_calibrated_empty_only_and_out_of_range(void)
+{
+    TEST_CASE("仅空杯标定：净减少记账，低于空杯重拒绝，续杯不猜饮水");
+    coaster_cfg_t c;
+    default_cfg(&c);
+    c.empty_cup_g = 120.0f;
+    sim_t s;
+    sim_new(&s, &c);
+    sim_idle(&s, 5);
+    feed_until(&s, 400.0f, COASTER_STATE_STABLE, 60);
+    feed_n(&s, 350.0f, 40);
+    coaster_event_t *drink = sim_last_of(&s, COASTER_EVT_DRINK);
+    CHECK_TRUE(drink != NULL, "净减少 50g 应记饮水");
+    if (drink) CHECK_FLOAT(drink->drink_ml, 50.0f, 1.5f, "确认 50ml");
+    int count = sim_count_of(&s, COASTER_EVT_DRINK);
+    feed_n(&s, 500.0f, 40);
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), count, "续杯不应补记饮水");
+    feed_n(&s, 80.0f, 40);
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), count,
+              "换成比标定空杯更轻的杯子时不应误记饮水");
+    coaster_destroy(s.h);
+}
+
+static void test_full_cup_rejects_over_capacity_and_calibration_resets(void)
+{
+    TEST_CASE("满杯上界过滤其他物体；基线/比例改变后清除杯子标定");
+    coaster_cfg_t c;
+    default_cfg(&c);
+    sim_t s;
+    sim_new(&s, &c);
+    CHECK_FALSE(coaster_set_cup_calibration(s.h, 120.0f, 150.0f),
+                "满杯比空杯多不足 50g 应拒绝");
+    CHECK_TRUE(coaster_set_cup_calibration(s.h, 120.0f, 620.0f), "有效标定应接受");
+    sim_idle(&s, 5);
+    feed_until(&s, 700.0f, COASTER_STATE_STABLE, 60);
+    CHECK_TRUE(coaster_have_last_stable(s.h), "放杯后已有稳定参考");
+    feed_n(&s, 500.0f, 40);
+    CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), 0, "超过满杯重量的物体不可算作饮水");
+    CHECK_TRUE(coaster_set_cup_calibration(s.h, 121.0f, 621.0f), "换杯可重新标定");
+    CHECK_FALSE(coaster_have_last_stable(s.h), "空杯重变更后清除旧杯稳定参考");
+    coaster_set_baseline(s.h, BASE_RAW);
+    CHECK_FLOAT(coaster_empty_cup_g(s.h), 0.0f, 0.01f, "基线变更清除空杯标定");
+    CHECK_FLOAT(coaster_full_cup_g(s.h), 0.0f, 0.01f, "基线变更清除满杯标定");
+    CHECK_TRUE(coaster_set_cup_calibration(s.h, 120.0f, 620.0f), "可重新标定");
+    coaster_set_scale(s.h, SCALE_COUNTS_PER_G);
+    CHECK_FLOAT(coaster_full_cup_g(s.h), 0.0f, 0.01f, "比例变更清除标定");
+    coaster_destroy(s.h);
+}
+
 int main(void)
 {
     test_create();
@@ -864,6 +935,9 @@ int main(void)
     test_negative_weight();
     test_state_names();
     test_set_baseline_relearn();
+    test_calibrated_full_cup_counts_only_visible_net_loss();
+    test_calibrated_empty_only_and_out_of_range();
+    test_full_cup_rejects_over_capacity_and_calibration_resets();
 
     return test_report();
 }

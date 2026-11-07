@@ -6,7 +6,7 @@
 
 | 测试 | 对象 | 覆盖内容 |
 |---|---|---|
-| `test_coaster.c` | `components/coaster/coaster.c` | 参数校验、空载基线自学习（快下学/温漂）、放杯去抖与 `cup_placed`、拿杯 `cup_removed`、**差值法喝水结算**、阈值内不记账、在位喝水/加水（迁移）、续杯估算开关、`min_cup_g` 自学习、`set_baseline` / `set_scale`、空指针安全 |
+| `test_coaster.c` | `components/coaster/coaster.c` | 参数校验、空载基线自学习、放杯/拿杯去抖、**净重量差喝水结算**、阈值内不记账、在位喝水/加水、空杯与满杯两种标定模式、续杯不推算饮水、校准变更清除旧参考、`set_baseline` / `set_scale` |
 | `test_protocol.c` | `components/coaster/protocol.c` | 设备 → PC 的每一条 JSON Lines 文本格式（`event` / `status` / `remind` / `ack` / `config`）**与协议文档逐字节一致** |
 
 `stubs/` 下提供宿主端最小的 `cJSON` / `freertos` / `ESP_LOG` 桩，使 `protocol.c` 能在 PC 上编译运行。

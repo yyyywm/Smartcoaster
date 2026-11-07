@@ -16,6 +16,8 @@ static const char *TAG = "storage";
 #define KEY_SCALE       "scale"
 #define KEY_REMIND      "remind"
 #define KEY_EST_REFILL  "estrefill"
+#define KEY_EMPTY_CUP   "emptycup"
+#define KEY_FULL_CUP    "fullcup"
 
 /* float 以位模式存 u32 */
 static esp_err_t nvs_get_float(nvs_handle_t nvs, const char *key, float *out)
@@ -38,7 +40,7 @@ static esp_err_t nvs_set_float(nvs_handle_t nvs, const char *key, float v)
 esp_err_t storage_load(coaster_persist_t *out)
 {
     memset(out, 0, sizeof(*out));
-    out->estimate_on_refill = true;
+    out->estimate_on_refill = false;
 
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs);
@@ -61,6 +63,12 @@ esp_err_t storage_load(coaster_persist_t *out)
     out->reminder_set = (nvs_get_u32(nvs, KEY_REMIND, &out->reminder_min) == ESP_OK);
     if (nvs_get_u8(nvs, KEY_EST_REFILL, &u8) == ESP_OK) {
         out->estimate_on_refill = (u8 != 0);
+    }
+    if (nvs_get_float(nvs, KEY_EMPTY_CUP, &out->empty_cup_g) != ESP_OK) {
+        out->empty_cup_g = 0;
+    }
+    if (nvs_get_float(nvs, KEY_FULL_CUP, &out->full_cup_g) != ESP_OK) {
+        out->full_cup_g = 0;
     }
 
     nvs_close(nvs);
@@ -89,7 +97,8 @@ esp_err_t storage_save_state(int32_t baseline_raw, float min_cup_g,
 }
 
 esp_err_t storage_save_config(float scale_counts_per_g, uint32_t reminder_min,
-                              bool estimate_on_refill)
+                              bool estimate_on_refill, float empty_cup_g,
+                              float full_cup_g)
 {
     nvs_handle_t nvs;
     ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs_open failed");
@@ -97,6 +106,8 @@ esp_err_t storage_save_config(float scale_counts_per_g, uint32_t reminder_min,
     esp_err_t err = nvs_set_float(nvs, KEY_SCALE, scale_counts_per_g);
     if (err == ESP_OK) err = nvs_set_u32(nvs, KEY_REMIND, reminder_min);
     if (err == ESP_OK) err = nvs_set_u8(nvs, KEY_EST_REFILL, estimate_on_refill ? 1 : 0);
+    if (err == ESP_OK) err = nvs_set_float(nvs, KEY_EMPTY_CUP, empty_cup_g);
+    if (err == ESP_OK) err = nvs_set_float(nvs, KEY_FULL_CUP, full_cup_g);
     if (err == ESP_OK) err = nvs_commit(nvs);
 
     nvs_close(nvs);

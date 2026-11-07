@@ -4,7 +4,7 @@
  * 功能：
  *  - 差值法统计每次喝水量（拿起前稳定重量 - 放回后稳定重量）
  *  - 长时间未喝水 → 上报提醒事件（间隔可由上位机配置）
- *  - 空载基线 / 空杯重自学习，用户零校准
+ *  - 空载基线自学习；可由上位机标定空杯和满杯重量
  *  - NVS 持久化：断电续接，跨重启仍可结算喝水量
  *  - USB 串口 JSON Lines 协议与上位机通信（见 components/coaster/include/protocol.h）
  *
@@ -44,7 +44,7 @@ static coaster_handle_t s_coaster;
 static SemaphoreHandle_t s_state_mutex;
 static float    s_scale = DEFAULT_SCALE_COUNTS_PER_G;
 static uint32_t s_reminder_min = DEFAULT_REMINDER_MIN;
-static bool     s_estimate_on_refill = true;
+static bool     s_estimate_on_refill = false;  /* 旧协议字段，始终关闭 */
 
 static float    s_session_ml = 0;              /* 本次上电累计喝水量 */
 static int64_t  s_last_drink_us;               /* 上次喝水时间（上电即重置） */
@@ -52,12 +52,19 @@ static int64_t  s_last_remind_us;
 static int32_t  s_last_raw;                    /* 最近采样（供 calibrate_empty 用） */
 
 /** 把当前状态机内部量存入 NVS */
-static void persist_state(void)
+static esp_err_t persist_state(void)
 {
-    storage_save_state(coaster_baseline_raw(s_coaster),
-                       coaster_min_cup_g(s_coaster),
-                       coaster_have_last_stable(s_coaster),
-                       coaster_last_stable_g(s_coaster));
+    return storage_save_state(coaster_baseline_raw(s_coaster),
+                              coaster_min_cup_g(s_coaster),
+                              coaster_have_last_stable(s_coaster),
+                              coaster_last_stable_g(s_coaster));
+}
+
+static esp_err_t persist_config(void)
+{
+    return storage_save_config(s_scale, s_reminder_min, s_estimate_on_refill,
+                               coaster_empty_cup_g(s_coaster),
+                               coaster_full_cup_g(s_coaster));
 }
 
 /** 状态机事件 → 串口上报 + 提醒计时维护 */
@@ -89,7 +96,7 @@ static void on_command(const cJSON *root, void *ctx)
             min->valuedouble >= 0 && min->valuedouble <= UINT32_MAX &&
             floor(min->valuedouble) == min->valuedouble) {
             s_reminder_min = (uint32_t)min->valuedouble;
-            storage_save_config(s_scale, s_reminder_min, s_estimate_on_refill);
+            persist_config();
             ESP_LOGI(TAG, "reminder set to %" PRIu32 " min", s_reminder_min);
             protocol_send_ack(c, true);
         } else {
@@ -102,36 +109,40 @@ static void on_command(const cJSON *root, void *ctx)
             s_scale = (float)v->valuedouble;
             coaster_set_scale(s_coaster, s_scale);
             persist_state();
-            storage_save_config(s_scale, s_reminder_min, s_estimate_on_refill);
+            persist_config();
             ESP_LOGI(TAG, "scale set to %.2f", s_scale);
             protocol_send_ack(c, true);
         } else {
             protocol_send_ack(c, false);
         }
     } else if (strcmp(c, "estimate_on_refill") == 0) {
-        const cJSON *v = cJSON_GetObjectItem(root, "value");
-        if (cJSON_IsBool(v)) {
-            s_estimate_on_refill = cJSON_IsTrue(v);
-            coaster_set_estimate_on_refill(s_coaster, s_estimate_on_refill);
-            storage_save_config(s_scale, s_reminder_min, s_estimate_on_refill);
-            ESP_LOGI(TAG, "estimate_on_refill=%d", s_estimate_on_refill);
-            protocol_send_ack(c, true);
-        } else {
-            protocol_send_ack(c, false);
-        }
+        protocol_send_ack(c, false);  /* 无法由补水后的重量推断期间饮水量 */
     } else if (strcmp(c, "calibrate_empty") == 0) {
         if (coaster_state(s_coaster) == COASTER_STATE_NO_CUP) {
             coaster_set_baseline(s_coaster, s_last_raw);
             persist_state();
+            persist_config();
             ESP_LOGI(TAG, "manual baseline calibrate: %" PRId32, s_last_raw);
             protocol_send_ack(c, true);
         } else {
             protocol_send_ack(c, false);
         }
+    } else if (strcmp(c, "set_cup_calibration") == 0) {
+        const cJSON *empty = cJSON_GetObjectItem(root, "empty_g");
+        const cJSON *full = cJSON_GetObjectItem(root, "full_g");
+        bool ok = cJSON_IsNumber(empty) && cJSON_IsNumber(full) &&
+                  coaster_set_cup_calibration(s_coaster, (float)empty->valuedouble,
+                                              (float)full->valuedouble);
+        if (ok) {
+            ok = (persist_state() == ESP_OK && persist_config() == ESP_OK);
+        }
+        protocol_send_ack(c, ok);
     } else if (strcmp(c, "get_config") == 0) {
         protocol_send_config(s_scale, s_reminder_min, s_estimate_on_refill,
                              coaster_baseline_raw(s_coaster),
-                             coaster_min_cup_g(s_coaster));
+                             coaster_min_cup_g(s_coaster),
+                             coaster_empty_cup_g(s_coaster),
+                             coaster_full_cup_g(s_coaster));
     } else {
         protocol_send_ack(c, false);
     }
@@ -159,7 +170,7 @@ void app_main(void)
     if (persist.reminder_set) {
         s_reminder_min = persist.reminder_min;
     }
-    s_estimate_on_refill = persist.estimate_on_refill;
+    s_estimate_on_refill = false;
 
     /* HX711 */
     ESP_ERROR_CHECK(hx711_init(HX711_GAIN_128));
@@ -173,10 +184,19 @@ void app_main(void)
     }
     s_last_raw = first_raw;
 
+    float saved_empty = persist.valid && isfinite(persist.empty_cup_g) &&
+                        persist.empty_cup_g > 0 && persist.empty_cup_g <= 5000
+                        ? persist.empty_cup_g : 0;
+    float saved_full = saved_empty > 0 && isfinite(persist.full_cup_g) &&
+                       persist.full_cup_g >= saved_empty + 50 &&
+                       persist.full_cup_g <= 8000 ? persist.full_cup_g : 0;
+
     coaster_cfg_t cfg = {
         .scale_counts_per_g = s_scale,
         .baseline_raw   = persist.valid ? persist.baseline_raw : first_raw,
         .min_cup_g      = persist.valid ? persist.min_cup_g : 0,
+        .empty_cup_g    = saved_empty,
+        .full_cup_g     = saved_full,
         .have_last_stable = persist.valid && persist.have_last_stable,
         .last_stable_g  = persist.last_stable_g,
         .cup_present_g  = CUP_PRESENT_G,

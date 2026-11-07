@@ -1,10 +1,10 @@
 /*
  * 智能杯垫核心状态机
  *
- * 设计原则：用户零校准、零操作。
+ * 设计原则：无杯标定仍能按净重量差工作；杯子标定提供异常过滤。
  *  - 喝水量 = 拿起前稳定重量 - 放回后稳定重量（差值法，与零点无关）
  *  - 空杯垫基线自学习：杯子被拿起时天然暴露空载，基线自动跟踪/学习
- *  - 空杯重自学习：历史最小稳定重量，用于"喝完续杯"场景的喝水量估算
+ *  - 可选空杯/满杯标定过滤异常；补水期间饮水量无法由前后重量反推
  *
  * 状态机：
  *   NO_CUP  --放杯-->  SETTLING --稳定-->  STABLE
@@ -29,7 +29,7 @@ typedef enum {
 typedef enum {
     COASTER_EVT_CUP_PLACED = 0, /*!< 杯子放上（weight_g 有效） */
     COASTER_EVT_CUP_REMOVED,    /*!< 杯子被拿起（weight_g 为拿起前重量） */
-    COASTER_EVT_DRINK,          /*!< 确认喝水（drink_ml 有效；estimated=续杯估算值） */
+    COASTER_EVT_DRINK,          /*!< 确认净重量减少（drink_ml 有效） */
     COASTER_EVT_REFILL,         /*!< 确认加水（refill_ml 有效） */
 } coaster_event_type_t;
 
@@ -38,7 +38,7 @@ typedef struct {
     float weight_g;     /*!< 当前（或拿起前）杯+水总重 */
     float drink_ml;     /*!< COASTER_EVT_DRINK: 本次喝水量(ml≈g) */
     float refill_ml;    /*!< COASTER_EVT_REFILL: 本次加水量 */
-    bool  estimated;    /*!< DRINK 事件：true=续杯时按"已喝光"估算的值 */
+    bool  estimated;    /*!< 旧协议兼容字段；新版固件始终为 false */
 } coaster_event_t;
 
 typedef void (*coaster_event_cb_t)(const coaster_event_t *evt, void *user_ctx);
@@ -47,6 +47,8 @@ typedef struct {
     float    scale_counts_per_g;  /*!< HX711 校准系数（每克码值） */
     int32_t  baseline_raw;        /*!< 空杯垫基线 raw 初值（自学习会修正） */
     float    min_cup_g;           /*!< 历史最小带杯重量初值（<=0 表示未学习） */
+    float    empty_cup_g;         /*!< 用户标定的空杯+水总重（0=未标定） */
+    float    full_cup_g;          /*!< 用户标定的满杯+水总重（0=未标定） */
     bool     have_last_stable;    /*!< 是否有上次稳定重量（NVS 恢复） */
     float    last_stable_g;       /*!< 上次稳定重量(g)，用于跨重启结算 */
 
@@ -55,7 +57,7 @@ typedef struct {
     int      stable_window;       /*!< 稳定窗口采样数（~10Hz 采样，10≈1秒） */
     float    drink_thresh_g;      /*!< 喝水最小记账量，建议 5g */
     float    refill_thresh_g;     /*!< 加水最小记账量，建议 15g */
-    bool     estimate_on_refill;  /*!< 续杯时是否按"已喝光"估算喝水量 */
+    bool     estimate_on_refill;  /*!< 旧配置兼容字段；续杯不再推算饮水 */
 } coaster_cfg_t;
 
 typedef struct coaster *coaster_handle_t;
@@ -73,6 +75,8 @@ float           coaster_weight_g(coaster_handle_t h);   /*!< 最近一次换算�
 /* 供持久化/状态上报读取 */
 int32_t coaster_baseline_raw(coaster_handle_t h);
 float   coaster_min_cup_g(coaster_handle_t h);
+float   coaster_empty_cup_g(coaster_handle_t h);
+float   coaster_full_cup_g(coaster_handle_t h);
 bool    coaster_have_last_stable(coaster_handle_t h);
 float   coaster_last_stable_g(coaster_handle_t h);
 
@@ -80,6 +84,7 @@ float   coaster_last_stable_g(coaster_handle_t h);
 void coaster_set_scale(coaster_handle_t h, float scale_counts_per_g);
 void coaster_set_baseline(coaster_handle_t h, int32_t raw);  /*!< 手动空载校准 */
 void coaster_set_estimate_on_refill(coaster_handle_t h, bool enable);
+bool coaster_set_cup_calibration(coaster_handle_t h, float empty_g, float full_g);
 
 #ifdef __cplusplus
 }

@@ -14,6 +14,7 @@
  * PC → 设备（一行一个 JSON，以 \n 结尾）：
  *   {"cmd":"set_reminder","minutes":45}
  *   {"cmd":"set_scale","value":384.7}
+ *   {"cmd":"set_cup_calibration","empty_g":120.0,"full_g":620.0}
  *   {"cmd":"calibrate_empty"}      // 空杯垫时调用，手动校准基线
  *   {"cmd":"get_config"}
  */
@@ -32,7 +33,8 @@ void protocol_send_status(float weight_g, const char *state,
                           float session_ml, uint32_t since_drink_min);
 void protocol_send_ack(const char *cmd, bool ok);
 void protocol_send_config(float scale, uint32_t reminder_min, bool estimate_on_refill,
-                          int32_t baseline_raw, float min_cup_g);
+                          int32_t baseline_raw, float min_cup_g,
+                          float empty_cup_g, float full_cup_g);
 
 /** 创建串口命令接收任务（stdin 行读 + cJSON 解析），命令通过回调分发 */
 void protocol_start_rx(protocol_cmd_cb_t cb, void *ctx);

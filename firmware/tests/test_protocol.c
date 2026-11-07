@@ -160,13 +160,13 @@ static void send_remind_helper(void)
 
 static void send_config_helper(void)
 {
-    protocol_send_config(384.70f, 45, true, 845123, 215.0f);
+    protocol_send_config(384.70f, 45, false, 845123, 215.0f, 120.0f, 620.0f);
 }
 
 /* 边界：负 baseline_raw、0 提醒、关闭估算、负 min_cup_g */
 static void send_config_boundary_helper(void)
 {
-    protocol_send_config(1.0f, 0, false, -2147483648, -99.9f);
+    protocol_send_config(1.0f, 0, false, -2147483648, -99.9f, 0.0f, 0.0f);
 }
 
 /* 边界：大 since_drink_min（UINT32_MAX）、负 session_ml、非 stable 状态名 */
@@ -218,15 +218,15 @@ int main(void)
 
         CHECK_STR(capture(send_config_helper),
                   "{\"config\":{\"scale\":384.70,\"reminder_min\":45,"
-                  "\"estimate_on_refill\":1,\"baseline_raw\":845123,"
-                  "\"min_cup_g\":215.0}}\n",
+                  "\"estimate_on_refill\":0,\"baseline_raw\":845123,"
+                  "\"min_cup_g\":215.0,\"empty_cup_g\":120.0,\"full_cup_g\":620.0}}\n",
                   "config JSON 行");
 
         /* 边界：负 base line / UINT32_MAX / 负浮点 / 非法状态名 */
         CHECK_STR(capture(send_config_boundary_helper),
                   "{\"config\":{\"scale\":1.00,\"reminder_min\":0,"
                   "\"estimate_on_refill\":0,\"baseline_raw\":-2147483648,"
-                  "\"min_cup_g\":-99.9}}\n",
+                  "\"min_cup_g\":-99.9,\"empty_cup_g\":0.0,\"full_cup_g\":0.0}}\n",
                   "config 边界 JSON 行");
 
         CHECK_STR(capture(send_status_boundary_helper),
