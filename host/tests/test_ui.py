@@ -28,6 +28,50 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_dashboard_fits_without_scroll_at_minimum_window_size(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            for _ in range(5):
+                store.add_drink(datetime.now().astimezone(), 120, False)
+            messages = queue.Queue()
+            feed = FakeSerialFeed("auto", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                try:
+                    app = App(store, feed, messages)
+                except tk.TclError:
+                    store.close()
+                    self.skipTest("图形桌面不可用")
+                try:
+                    app.geometry("1100x600")
+                    app._render()
+                    app._set_action_status("请先把空杯放在杯垫上，等待重量稳定。", error=True)
+                    app.update()
+
+                    def descendants(widget):
+                        for child in widget.winfo_children():
+                            yield child
+                            yield from descendants(child)
+
+                    widgets = list(descendants(app))
+                    self.assertFalse(any(isinstance(widget, tk.Scrollbar) for widget in widgets))
+                    left = app.winfo_rootx()
+                    top = app.winfo_rooty()
+                    right = left + app.winfo_width()
+                    bottom = top + app.winfo_height()
+                    for widget in widgets:
+                        if widget.winfo_ismapped():
+                            self.assertGreaterEqual(widget.winfo_rootx(), left,
+                                                    f"控件超出窗口：{widget}")
+                            self.assertGreaterEqual(widget.winfo_rooty(), top,
+                                                    f"控件超出窗口：{widget}")
+                            self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), right,
+                                                 f"控件超出窗口：{widget}")
+                            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), bottom,
+                                                 f"控件超出窗口：{widget}")
+                finally:
+                    app.update_idletasks()
+                    app._shutdown()
+
     def test_settings_actions_return_with_inline_feedback(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
@@ -146,13 +190,5 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertFalse(app.core.alert_active)
                 self.assertIsNone(app.alert_window)
                 self.assertEqual(store.today_totals(now), (150, 200))
-                app.geometry("1100x600")
-                app.update()
-                viewport = next(child for child in app.winfo_children()
-                                if child.winfo_class() == "Canvas")
-                content_height = int(viewport.cget("scrollregion").split()[-1])
-                self.assertGreater(content_height, viewport.winfo_height())
-                viewport.yview_moveto(1.0)
-                self.assertAlmostEqual(viewport.yview()[1], 1.0)
             finally:
                 app._shutdown()
