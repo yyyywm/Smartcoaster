@@ -1,0 +1,22 @@
+menu "HX711 Configuration"
+
+    config HX711_GPIO_DOUT
+        int "HX711 DOUT (data) GPIO number"
+        default 4
+        help
+            GPIO connected to the HX711 DOUT (DT) pin.
+
+    config HX711_GPIO_SCK
+        int "HX711 PD_SCK (clock) GPIO number"
+        default 5
+        help
+            GPIO connected to the HX711 PD_SCK (SCK) pin.
+
+    config HX711_READ_TIMEOUT_MS
+        int "HX711 data-ready timeout (ms)"
+        default 500
+        help
+            Maximum time to wait for DOUT going low (conversion ready)
+            before reporting a timeout error.
+
+endmenu

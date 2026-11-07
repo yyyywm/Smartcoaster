@@ -1,0 +1,39 @@
+# ESP-IDF build artifacts
+build/
+cmake-build-debug/
+sdkconfig.old
+
+# CMake build directory
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Compiler output
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.exe
+/firmware/tests/test_coaster
+/firmware/tests/test_protocol
+
+# Python runtime and local environments
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
