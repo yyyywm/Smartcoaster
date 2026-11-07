@@ -4,6 +4,11 @@ from __future__ import annotations
 from datetime import datetime
 import math
 import queue
+
+from .dpi import enable_native_dpi
+
+enable_native_dpi()
+
 import tkinter as tk
 from tkinter import messagebox
 
@@ -41,8 +46,12 @@ class App(tk.Tk):
 
         self.title("智能杯垫 · 饮水提醒")
         self.configure(bg=BG)
-        self.geometry("1200x740")
-        self.minsize(1060, 690)
+        width = min(1400, self.winfo_screenwidth() - 80)
+        height = min(860, self.winfo_screenheight() - 120)
+        left = max(0, (self.winfo_screenwidth() - width) // 2)
+        top = max(0, (self.winfo_screenheight() - height - 60) // 2)
+        self.geometry(f"{width}x{height}+{left}+{top}")
+        self.minsize(1100, 600)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind_all("<Control-Shift-Q>", self._emergency_exit)
         self._build()
@@ -63,14 +72,24 @@ class App(tk.Tk):
 
     def _build(self) -> None:
         settings = self.core.settings
-        top = tk.Frame(self, bg=BG)
+        viewport = tk.Canvas(self, bg=BG, highlightthickness=0)
+        scrollbar = tk.Scrollbar(self, orient="vertical", command=viewport.yview)
+        viewport.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        viewport.pack(side="left", fill="both", expand=True)
+        page = tk.Frame(viewport, bg=BG)
+        page_id = viewport.create_window(0, 0, window=page, anchor="nw")
+        page.bind("<Configure>", lambda _event: viewport.configure(scrollregion=viewport.bbox("all")))
+        viewport.bind("<Configure>", lambda event: viewport.itemconfigure(page_id, width=event.width))
+
+        top = tk.Frame(page, bg=BG)
         top.pack(fill="x", padx=30, pady=(14, 8))
         self._label(top, "喝水，别等到口渴。", 23, TEXT, True).pack(side="left")
         self.conn_var = tk.StringVar(value="连接中")
         tk.Label(top, textvariable=self.conn_var, bg=PANEL_ALT, fg=MUTED,
                  font=("Microsoft YaHei UI", 10), padx=12, pady=7).pack(side="right")
 
-        content = tk.Frame(self, bg=BG)
+        content = tk.Frame(page, bg=BG)
         content.pack(fill="both", expand=True, padx=24)
         content.columnconfigure(0, weight=3)
         content.columnconfigure(1, weight=2)
@@ -162,7 +181,7 @@ class App(tk.Tk):
         tk.Label(recent_panel, textvariable=self.recent_var, bg=PANEL, fg=MUTED,
                  font=("Consolas", 10), justify="left", anchor="w").pack(fill="x")
 
-        footer = tk.Frame(self, bg=BG)
+        footer = tk.Frame(page, bg=BG)
         footer.pack(fill="x", padx=30, pady=(4, 8))
         self._label(footer, "饮水量按固件确认的重量差统计；水量需先记录空杯重。",
                     9, MUTED).pack(side="left")

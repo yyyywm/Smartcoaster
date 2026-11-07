@@ -37,5 +37,13 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertFalse(app.core.alert_active)
                 self.assertIsNone(app.alert_window)
                 self.assertEqual(store.today_totals(now), (150, 200))
+                app.geometry("1100x600")
+                app.update()
+                viewport = next(child for child in app.winfo_children()
+                                if child.winfo_class() == "Canvas")
+                content_height = int(viewport.cget("scrollregion").split()[-1])
+                self.assertGreater(content_height, viewport.winfo_height())
+                viewport.yview_moveto(1.0)
+                self.assertAlmostEqual(viewport.yview()[1], 1.0)
             finally:
                 app._shutdown()
