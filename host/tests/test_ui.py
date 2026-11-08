@@ -212,7 +212,10 @@ class ReminderWindowTests(unittest.TestCase):
                     store.close()
                     self.skipTest("图形桌面不可用")
                 try:
-                    app.geometry("1100x600")
+                    app.update_idletasks()
+                    self.assertAlmostEqual(app.winfo_width() / app.winfo_height(),
+                                           (1 + 5 ** 0.5) / 2, delta=0.01)
+                    app.geometry("960x593")
                     def descendants(widget):
                         for child in widget.winfo_children():
                             yield child

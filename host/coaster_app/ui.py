@@ -28,6 +28,9 @@ ACCENT = "#65D6A6"
 WATER = "#5FB9DC"
 ALERT = "#FFB86B"
 RECORDS_PAGE_SIZE = 10
+GOLDEN_RATIO = (1 + math.sqrt(5)) / 2
+WINDOW_WIDTH = 1080
+MIN_WINDOW_WIDTH = 960
 
 
 class App(tk.Tk):
@@ -60,12 +63,15 @@ class App(tk.Tk):
 
         self.title("智能杯垫 · 饮水提醒")
         self.configure(bg=BG)
-        width = min(1100, self.winfo_screenwidth() - 80)
-        height = min(600, self.winfo_screenheight() - 120)
+        available_width = self.winfo_screenwidth() - 80
+        available_height = self.winfo_screenheight() - 120
+        width = min(WINDOW_WIDTH, available_width, round(available_height * GOLDEN_RATIO))
+        height = round(width / GOLDEN_RATIO)
         left = max(0, (self.winfo_screenwidth() - width) // 2)
         top = max(0, (self.winfo_screenheight() - height - 60) // 2)
         self.geometry(f"{width}x{height}+{left}+{top}")
-        self.minsize(1100, 600)
+        self.minsize(min(MIN_WINDOW_WIDTH, width),
+                     min(round(MIN_WINDOW_WIDTH / GOLDEN_RATIO), height))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind_all("<Control-Shift-Q>", self._emergency_exit)
         self._build()
@@ -128,8 +134,8 @@ class App(tk.Tk):
         self.views = {name: tk.Frame(self.view_area, bg=BG)
                       for name in ("overview", "settings", "records")}
         content = self.views["overview"]
-        content.columnconfigure(0, weight=3, uniform="dashboard")
-        content.columnconfigure(1, weight=2, uniform="dashboard")
+        content.columnconfigure(0, weight=1618, uniform="dashboard")
+        content.columnconfigure(1, weight=1000, uniform="dashboard")
         content.rowconfigure(0, weight=1)
 
         left = tk.Frame(content, bg=BG)
@@ -143,14 +149,14 @@ class App(tk.Tk):
         inner.pack(fill="both", expand=True)
         display = tk.Frame(inner, bg=PANEL)
         display.pack(expand=True)
-        self.water_canvas = tk.Canvas(display, bg=PANEL, width=170, height=240,
+        self.water_canvas = tk.Canvas(display, bg=PANEL, width=210, height=310,
                                       highlightthickness=0)
         self.water_canvas.pack(side="left", padx=(0, 12))
         numbers = tk.Frame(display, bg=PANEL)
         numbers.pack(side="left", anchor="n", pady=(24, 0))
         self.water_var = tk.StringVar(value="-- ml")
         tk.Label(numbers, textvariable=self.water_var, bg=PANEL, fg=TEXT,
-                 font=("Consolas", 26, "bold")).pack(anchor="w")
+                 font=("Consolas", 30, "bold")).pack(anchor="w")
         self.water_note = tk.StringVar(value="等待杯垫数据")
         tk.Label(numbers, textvariable=self.water_note, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), wraplength=165,
@@ -159,35 +165,42 @@ class App(tk.Tk):
             tk.Button(numbers, text="模拟喝水 150 ml", command=lambda: self.feed.simulate_drink(150),
                       bg=PANEL_ALT, fg=TEXT, relief="flat", padx=8, pady=5).pack(anchor="w", pady=12)
 
+        right.rowconfigure(0, weight=1618, uniform="summary")
+        right.rowconfigure(1, weight=1000, uniform="summary")
+        right.columnconfigure(0, weight=1)
         today_panel = self._panel(right, "今日饮水")
-        today_panel.pack(fill="x", pady=(0, 8))
+        today_panel.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
+        today_body = tk.Frame(today_panel, bg=PANEL)
+        today_body.pack(fill="x", expand=True)
         self.today_var = tk.StringVar(value="0 ml")
-        self._label(today_panel, "已确认饮水", 10, MUTED).pack(anchor="w")
-        tk.Label(today_panel, textvariable=self.today_var, bg=PANEL, fg=ACCENT,
-                 font=("Consolas", 24, "bold")).pack(anchor="w")
-        self.progress_canvas = tk.Canvas(today_panel, height=12, bg=PANEL,
+        self._label(today_body, "已确认饮水", 10, MUTED).pack(anchor="w")
+        tk.Label(today_body, textvariable=self.today_var, bg=PANEL, fg=ACCENT,
+                 font=("Consolas", 28, "bold")).pack(anchor="w", pady=(6, 8))
+        self.progress_canvas = tk.Canvas(today_body, height=12, bg=PANEL,
                                          highlightthickness=0)
-        self.progress_canvas.pack(fill="x", pady=(6, 5))
+        self.progress_canvas.pack(fill="x", pady=(4, 8))
         self.goal_var = tk.StringVar(value="")
-        tk.Label(today_panel, textvariable=self.goal_var, bg=PANEL, fg=MUTED,
+        tk.Label(today_body, textvariable=self.goal_var, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9)).pack(anchor="w")
 
         schedule = self._panel(right, "提醒计划")
-        schedule.pack(fill="x", pady=(0, 8))
+        schedule.grid(row=1, column=0, sticky="nsew")
+        schedule_body = tk.Frame(schedule, bg=PANEL)
+        schedule_body.pack(fill="x", expand=True)
         self.next_var = tk.StringVar(value="等待设备")
-        tk.Label(schedule, textvariable=self.next_var, bg=PANEL, fg=ALERT,
+        tk.Label(schedule_body, textvariable=self.next_var, bg=PANEL, fg=ALERT,
                  font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
-        self._label(schedule, "仅在工作时段内开始提醒；已出现的提醒需饮水完成。",
-                    9, MUTED, wraplength=230, justify="left").pack(anchor="w", pady=(5, 0))
+        self._label(schedule_body, "仅在工作时段内开始提醒；已出现的提醒需饮水完成。",
+                    9, MUTED, wraplength=260, justify="left").pack(anchor="w", pady=(8, 0))
 
         settings_view = self.views["settings"]
-        settings_view.columnconfigure(0, weight=3, uniform="settings")
-        settings_view.columnconfigure(1, weight=2, uniform="settings")
-        settings_view.rowconfigure(0, weight=1)
+        settings_view.columnconfigure(0, weight=1618, uniform="settings")
+        settings_view.columnconfigure(1, weight=1000, uniform="settings")
+        settings_view.rowconfigure(0, weight=0)
         settings_panel = self._panel(settings_view, "饮水计划")
-        settings_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        settings_panel.grid(row=0, column=0, sticky="new", padx=(0, 5))
         calibration_panel = self._panel(settings_view, "杯子标定")
-        calibration_panel.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        calibration_panel.grid(row=0, column=1, sticky="new", padx=(5, 0))
         self.entries: dict[str, tk.Entry] = {}
         fields = (
             ("work_start", "上班时间", settings.work_start),
@@ -650,20 +663,20 @@ class App(tk.Tk):
     def _draw_water(self, water: float | None, cup_present: bool) -> None:
         canvas = self.water_canvas
         canvas.delete("all")
-        canvas.create_rectangle(28, 18, 125, 205, outline=WATER, width=4)
-        canvas.create_line(25, 17, 128, 17, fill=WATER, width=5)
-        canvas.create_arc(114, 55, 168, 160, start=270, extent=180,
+        canvas.create_rectangle(34, 20, 157, 270, outline=WATER, width=4)
+        canvas.create_line(30, 19, 161, 19, fill=WATER, width=5)
+        canvas.create_arc(145, 78, 205, 210, start=270, extent=180,
                           style="arc", outline=WATER, width=4)
         if water is not None:
             capacity = self.core.settings.calibrated_capacity_ml or self.core.settings.cup_capacity_ml
             ratio = min(1.0, water / capacity)
-            top = 201 - ratio * 179
+            top = 266 - ratio * 242
             if ratio > 0:
-                canvas.create_rectangle(32, top, 121, 201, fill=WATER, outline="")
+                canvas.create_rectangle(38, top, 153, 266, fill=WATER, outline="")
         elif cup_present:
-            canvas.create_text(76, 111, text="已放杯", fill=ACCENT,
+            canvas.create_text(95, 145, text="已放杯", fill=ACCENT,
                                font=("Microsoft YaHei UI", 12, "bold"))
-        canvas.create_text(76, 225, text="估算液位" if water is not None else "杯子状态", fill=MUTED,
+        canvas.create_text(95, 295, text="估算液位" if water is not None else "杯子状态", fill=MUTED,
                            font=("Microsoft YaHei UI", 9))
 
     def _draw_progress(self, ratio: float) -> None:
