@@ -300,9 +300,6 @@ class App(tk.Tk):
         self._show_view("overview")
 
     def _show_view(self, name: str) -> None:
-        previous = getattr(self, "active_view", None)
-        if previous == "settings" and name != "settings":
-            self.core.begin_session(datetime.now().astimezone())
         if name != "records":
             self.delete_pending = None
         self.active_view = name

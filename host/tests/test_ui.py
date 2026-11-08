@@ -32,6 +32,34 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_leaving_settings_does_not_skip_an_overdue_reminder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            now = datetime.now().astimezone()
+            store.save_settings(Settings(
+                work_start=(now - timedelta(hours=1)).strftime("%H:%M"),
+                work_end=(now + timedelta(hours=1)).strftime("%H:%M"),
+                interval_min=5,
+            ))
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM18", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                app = App(store, feed, messages)
+            try:
+                app.connection = True
+                app.last_frame_at = now
+                app.core.session_started_at = now - timedelta(minutes=6)
+                app._show_view("settings")
+                app._tick()
+                self.assertFalse(app.core.alert_active)
+                with patch.object(app, "_show_alert") as show_alert:
+                    app._show_view("overview")
+                    app._tick()
+                    self.assertTrue(app.core.alert_active)
+                    show_alert.assert_called_once()
+            finally:
+                app._shutdown()
+
     def test_empty_pad_zero_recovers_false_cup_and_clears_cup_calibration(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
@@ -122,7 +150,7 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertIsNone(store.load_runtime()[1])
                 self.assertEqual(store.list_drinks()[0][2], 120)
                 app._show_view("settings")
-                app.core.session_started_at = now - timedelta(minutes=35)
+                app.core.session_started_at = now - timedelta(minutes=20)
                 app.connection = True
                 app.last_frame_at = datetime.now().astimezone()
                 app._tick()
@@ -136,7 +164,7 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertIsNone(app.alert_window)
                 self.assertGreater(app.core.due_at(datetime.now().astimezone()),
                                    datetime.now().astimezone())
-                app.core.session_started_at -= timedelta(minutes=31)
+                app.core.session_started_at -= timedelta(minutes=11)
                 app.last_frame_at = datetime.now().astimezone()
                 app._tick()
                 self.assertIsNotNone(app.alert_window)
