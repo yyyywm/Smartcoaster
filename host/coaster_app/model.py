@@ -91,7 +91,7 @@ class HydrationCore:
         self.session_started_at: datetime | None = None
 
     def begin_session(self, now: datetime) -> None:
-        """Start reminder timing when the user finishes setup for this launch."""
+        """Start or resume reminder timing after launch or setup."""
         self.alert_started = None
         self.alert_progress_ml = 0.0
         self.session_started_at = now

@@ -42,7 +42,7 @@ class App(tk.Tk):
         self.core = HydrationCore(settings, last)
         if alert is not None or progress:
             store.save_runtime(last, None, 0)
-        self.monitoring_enabled = False
+        self.core.begin_session(datetime.now().astimezone())
         self.weight_g: float | None = None
         self.device_state = "unknown"
         self.connection = False
@@ -101,9 +101,9 @@ class App(tk.Tk):
                                bg=BG, fg=MUTED, relief="flat", padx=15, pady=5)
             button.pack(side="left", padx=(0, 4))
             self.view_buttons[key] = button
-        self.start_button = tk.Button(top, text="开始提醒", command=self._start_monitoring,
-                                      bg=ACCENT, fg=BG, relief="flat", padx=14, pady=5)
-        self.start_button.pack(side="left", padx=(8, 0))
+        self.mode_var = tk.StringVar(value="提醒自动运行")
+        tk.Label(top, textvariable=self.mode_var, bg=BG, fg=ACCENT,
+                 font=("Microsoft YaHei UI", 9)).pack(side="left", padx=(12, 0))
         self.conn_var = tk.StringVar(value="连接中")
         tk.Label(top, textvariable=self.conn_var, bg=PANEL_ALT, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), padx=10, pady=4).pack(side="right")
@@ -279,9 +279,13 @@ class App(tk.Tk):
         self._show_view("overview")
 
     def _show_view(self, name: str) -> None:
+        previous = getattr(self, "active_view", None)
+        if previous == "settings" and name != "settings":
+            self.core.begin_session(datetime.now().astimezone())
         if name != "records":
             self.delete_pending = None
         self.active_view = name
+        self.mode_var.set("设置中 · 提醒暂缓" if name == "settings" else "提醒自动运行")
         for view in self.views.values():
             view.pack_forget()
         self.views[name].pack(fill="both", expand=True)
@@ -290,15 +294,6 @@ class App(tk.Tk):
                              fg=BG if key == name else MUTED)
         if name == "records":
             self._refresh_records()
-
-    def _start_monitoring(self) -> None:
-        if self.monitoring_enabled:
-            return
-        self.core.begin_session(datetime.now().astimezone())
-        self.monitoring_enabled = True
-        self.start_button.configure(text="提醒已启动", state="disabled", bg=PANEL_ALT, fg=MUTED)
-        self._show_view("overview")
-        self._render()
 
     def _refresh_records(self) -> None:
         self.records_tree.delete(*self.records_tree.get_children())
@@ -582,11 +577,13 @@ class App(tk.Tk):
         now = datetime.now().astimezone()
         try:
             self._consume_messages(now)
-            if (self.monitoring_enabled and self.active_view != "settings"
-                    and self.core.tick(now, self._connected(now))):
+            connected = self._connected(now)
+            if self.active_view != "settings" and self.core.tick(now, connected):
                 self._persist_runtime()
-            if self.core.alert_active:
+            if self.core.alert_active and connected and self.active_view != "settings":
                 self._show_alert()
+            else:
+                self._hide_alert()
             self._render()
         finally:
             if not self._closing:
@@ -637,8 +634,8 @@ class App(tk.Tk):
         self.goal_var.set(f"每日目标 {self.core.settings.daily_goal_ml} ml · 达成 {confirmed / self.core.settings.daily_goal_ml:.0%}"
                           + (f" · 另有估算 {estimated:.0f} ml" if estimated else ""))
         self._draw_progress(min(1.0, confirmed / self.core.settings.daily_goal_ml))
-        if not self.monitoring_enabled:
-            self.next_var.set("准备中 · 设置完成后开始提醒")
+        if self.core.alert_active and not connected:
+            self.next_var.set("设备离线 · 提醒待完成")
         elif self.core.alert_active:
             remaining = max(0, self.core.settings.sip_target_ml - self.core.alert_progress_ml)
             self.next_var.set(f"提醒中 · 还需 {remaining:.0f} ml")
@@ -723,7 +720,8 @@ class App(tk.Tk):
             self.alert_window = None
 
     def _on_close(self) -> None:
-        if self.core.alert_active:
+        if (self.core.alert_active and self.active_view != "settings"
+                and self._connected(datetime.now().astimezone())):
             self._show_alert()
             return
         self._shutdown()

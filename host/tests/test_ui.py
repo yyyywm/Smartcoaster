@@ -32,12 +32,56 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
-    def test_launch_with_saved_alert_allows_settings_before_monitoring(self):
+    def test_offline_pending_alert_does_not_block_app_close(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
-            store.save_settings(Settings(work_start="01:00", work_end="23:00",
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM7", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                app = App(store, feed, messages)
+            try:
+                app.core.alert_started = datetime.now().astimezone()
+                app._on_close()
+                self.assertTrue(app._closing)
+                self.assertIsNone(app.alert_window)
+            finally:
+                app._shutdown()
+
+    def test_device_disconnect_releases_fullscreen_until_reconnected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM7", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                app = App(store, feed, messages)
+            try:
+                now = datetime.now().astimezone()
+                app.connection = True
+                app.last_frame_at = now
+                app.core.alert_started = now
+                app._tick()
+                self.assertIsNotNone(app.alert_window)
+                app.connection = False
+                app.last_frame_at = None
+                app._tick()
+                self.assertIsNone(app.alert_window)
+                self.assertTrue(app.core.alert_active)
+                app.connection = True
+                app.last_frame_at = datetime.now().astimezone()
+                app._tick()
+                self.assertIsNotNone(app.alert_window)
+            finally:
+                app.update_idletasks()
+                app._shutdown()
+
+    def test_launch_with_saved_alert_auto_monitors_and_allows_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            now = datetime.now().astimezone()
+            store.save_settings(Settings(work_start=(now - timedelta(hours=1)).strftime("%H:%M"),
+                                         work_end=(now + timedelta(hours=1)).strftime("%H:%M"),
                                          interval_min=5))
-            yesterday = datetime.now().astimezone() - timedelta(days=1)
+            yesterday = now - timedelta(days=1)
             store.save_runtime(None, yesterday, 0)
             store.add_drink(yesterday, 120, False)
             messages = queue.Queue()
@@ -47,17 +91,28 @@ class ReminderWindowTests(unittest.TestCase):
                 app._tick()
                 self.assertIsNone(app.alert_window)
                 self.assertFalse(app.core.alert_active)
+                self.assertIsNotNone(app.core.session_started_at)
                 self.assertIsNone(store.load_runtime()[1])
                 self.assertEqual(store.list_drinks()[0][2], 120)
                 app._show_view("settings")
+                app.core.session_started_at = now - timedelta(minutes=35)
+                app.connection = True
+                app.last_frame_at = datetime.now().astimezone()
+                app._tick()
+                self.assertIsNone(app.alert_window)
                 app.entries["interval_min"].delete(0, tk.END)
                 app.entries["interval_min"].insert(0, "30")
                 app._save_settings()
                 self.assertEqual(app.core.settings.interval_min, 30)
-                app._start_monitoring()
+                app._show_view("overview")
                 app._tick()
                 self.assertIsNone(app.alert_window)
-                self.assertIsNotNone(app.core.session_started_at)
+                self.assertGreater(app.core.due_at(datetime.now().astimezone()),
+                                   datetime.now().astimezone())
+                app.core.session_started_at -= timedelta(minutes=31)
+                app.last_frame_at = datetime.now().astimezone()
+                app._tick()
+                self.assertIsNotNone(app.alert_window)
             finally:
                 app._shutdown()
 
@@ -296,7 +351,6 @@ class ReminderWindowTests(unittest.TestCase):
                 self.skipTest("图形桌面不可用")
             try:
                 app.update()
-                app._start_monitoring()
                 app.core.alert_started = now
                 app._tick()
                 self.assertIsNotNone(app.alert_window)
