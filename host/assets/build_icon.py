@@ -13,55 +13,53 @@ ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
 def large_icon() -> Image.Image:
     size = 1024
-    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ramp = Image.new("RGB", (1, size))
+    start, end = (248, 253, 254), (215, 239, 245)
+    for y in range(size):
+        fraction = y / (size - 1)
+        ramp.putpixel((0, y), tuple(round(a + (b - a) * fraction)
+                                     for a, b in zip(start, end)))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((8, 8, size - 9, size - 9),
+                                            radius=226, fill=255)
+    icon = ramp.resize((size, size)).convert("RGBA")
+    icon.putalpha(mask)
     draw = ImageDraw.Draw(icon)
-    draw.rounded_rectangle((0, 0, 1023, 1023), radius=225, fill="#101820")
-    draw.ellipse((120, 120, 904, 904), fill="#1A303B")
-    draw.polygon([(512, 146), (426, 266), (435, 324), (471, 359),
-                  (512, 373), (553, 359), (589, 324), (598, 266)],
-                 fill="#65D6A6")
-    draw.ellipse((426, 258, 598, 377), fill="#65D6A6")
-    draw.ellipse((467, 287, 487, 307), fill="#D4FFF0")
-    draw.polygon([(337, 560), (446, 542), (560, 560), (681, 537),
-                  (650, 760), (374, 760)], fill="#5FB9DC")
-    draw.line([(285, 400), (326, 775), (354, 808), (670, 808),
-               (698, 775), (739, 400)], fill="#F4F2EA", width=43,
-              joint="curve")
-    draw.line([(274, 398), (750, 398)], fill="#F4F2EA", width=43)
+    draw.rounded_rectangle((8, 8, size - 9, size - 9), radius=226,
+                           outline="#B6DCE6", width=12)
+    draw.polygon([(252, 308), (772, 308), (699, 754), (325, 754)],
+                 fill="#F7FDFF")
+    draw.polygon([(291, 510), (404, 497), (523, 512), (643, 499),
+                  (733, 508), (686, 713), (338, 713)], fill="#4DBDD9")
+    draw.line([(263, 324), (327, 754), (697, 754), (761, 324)],
+              fill="#23546A", width=46, joint="curve")
+    draw.line([(238, 310), (786, 310)], fill="#23546A", width=48)
+    draw.ellipse((214, 286, 262, 334), fill="#23546A")
+    draw.ellipse((762, 286, 810, 334), fill="#23546A")
     return icon
 
 
 def small_icon(size: int) -> Image.Image:
-    """Draw the cup on the final pixel grid instead of shrinking fine detail."""
+    """Keep the cup legible on the final taskbar pixel grid."""
     icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(icon)
     draw.rounded_rectangle((0, 0, size - 1, size - 1),
-                           radius=max(3, round(size * 0.22)), fill="#101820")
-    center = size // 2
-    drop_top = max(2, round(size * 0.12))
-    drop_bottom = round(size * 0.33)
-    drop_half = max(1, round(size * 0.065))
-    draw.polygon([(center, drop_top), (center - drop_half, drop_bottom - 1),
-                  (center + drop_half, drop_bottom - 1)], fill="#65D6A6")
-    draw.ellipse((center - drop_half, drop_bottom - drop_half,
-                  center + drop_half, drop_bottom), fill="#65D6A6")
-
-    rim_y = round(size * 0.39)
-    bottom_y = round(size * 0.83)
-    left = round(size * 0.24)
-    right = size - left - 1
-    bottom_left = round(size * 0.31)
-    bottom_right = size - bottom_left - 1
-    stroke = max(2, round(size * 0.075))
-    water_y = round(size * 0.59)
-    draw.polygon([(left + stroke, water_y), (right - stroke, water_y),
-                  (bottom_right - 1, bottom_y - stroke),
-                  (bottom_left + 1, bottom_y - stroke)], fill="#5FB9DC")
-    draw.line([(left, rim_y), (bottom_left, bottom_y),
-               (bottom_right, bottom_y), (right, rim_y)],
-              fill="#F4F2EA", width=stroke, joint="curve")
-    draw.line([(left - 1, rim_y), (right + 1, rim_y)],
-              fill="#F4F2EA", width=stroke)
+                           radius=max(3, round(size * 0.22)), fill="#E3F3F7")
+    rim = round(size * 0.29)
+    bottom = round(size * 0.78)
+    left, right = round(size * 0.23), round(size * 0.77)
+    foot_left, foot_right = round(size * 0.30), round(size * 0.70)
+    stroke = max(1, round(size * 0.075))
+    draw.polygon([(left, rim), (right, rim), (foot_right, bottom),
+                  (foot_left, bottom)], fill="#F7FDFF")
+    draw.polygon([(left + stroke, round(size * 0.52)),
+                  (right - stroke, round(size * 0.52)),
+                  (foot_right - stroke, bottom - stroke),
+                  (foot_left + stroke, bottom - stroke)], fill="#4DBDD9")
+    draw.line([(left, rim), (foot_left, bottom), (foot_right, bottom),
+               (right, rim)], fill="#23546A", width=stroke, joint="curve")
+    draw.line([(left - 1, rim), (right + 1, rim)],
+              fill="#23546A", width=stroke)
     return icon
 
 
