@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import queue
 import tempfile
@@ -32,6 +32,35 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_launch_with_saved_alert_allows_settings_before_monitoring(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            store.save_settings(Settings(work_start="01:00", work_end="23:00",
+                                         interval_min=5))
+            yesterday = datetime.now().astimezone() - timedelta(days=1)
+            store.save_runtime(None, yesterday, 0)
+            store.add_drink(yesterday, 120, False)
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                app.update()
+                app._tick()
+                self.assertIsNone(app.alert_window)
+                self.assertFalse(app.core.alert_active)
+                self.assertIsNone(store.load_runtime()[1])
+                self.assertEqual(store.list_drinks()[0][2], 120)
+                app._show_view("settings")
+                app.entries["interval_min"].delete(0, tk.END)
+                app.entries["interval_min"].insert(0, "30")
+                app._save_settings()
+                self.assertEqual(app.core.settings.interval_min, 30)
+                app._start_monitoring()
+                app._tick()
+                self.assertIsNone(app.alert_window)
+                self.assertIsNotNone(app.core.session_started_at)
+            finally:
+                app._shutdown()
+
     def test_device_calibration_is_loaded_when_local_settings_have_none(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
@@ -259,7 +288,6 @@ class ReminderWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
             now = datetime.now().astimezone()
-            store.save_runtime(None, now, 0)
             messages = queue.Queue()
             try:
                 app = App(store, DemoFeed(messages), messages)
@@ -268,6 +296,8 @@ class ReminderWindowTests(unittest.TestCase):
                 self.skipTest("图形桌面不可用")
             try:
                 app.update()
+                app._start_monitoring()
+                app.core.alert_started = now
                 app._tick()
                 self.assertIsNotNone(app.alert_window)
                 self.assertTrue(app.alert_window.attributes("-fullscreen"))

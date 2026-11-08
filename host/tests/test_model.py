@@ -47,6 +47,15 @@ class SettingsTests(unittest.TestCase):
 
 
 class ReminderTests(unittest.TestCase):
+    def test_new_session_starts_interval_from_activation(self):
+        core = HydrationCore(Settings(work_start="01:00", work_end="23:00",
+                                      interval_min=5), alert_started=at(1, 26))
+        core.begin_session(at(10))
+        self.assertFalse(core.alert_active)
+        self.assertEqual(core.due_at(at(10)), at(10, 5))
+        self.assertFalse(core.tick(at(10, 4), True))
+        self.assertTrue(core.tick(at(10, 5), True))
+
     def test_waits_for_work_time_and_device(self):
         core = HydrationCore(Settings(work_start="09:00", work_end="18:00",
                                       interval_min=45))

@@ -39,8 +39,10 @@ class App(tk.Tk):
         self.messages = messages
         settings = store.load_settings()
         last, alert, progress = store.load_runtime()
-        self.core = HydrationCore(settings, last, alert, progress)
-        self._restored_alert_started = alert
+        self.core = HydrationCore(settings, last)
+        if alert is not None or progress:
+            store.save_runtime(last, None, 0)
+        self.monitoring_enabled = False
         self.weight_g: float | None = None
         self.device_state = "unknown"
         self.connection = False
@@ -99,6 +101,9 @@ class App(tk.Tk):
                                bg=BG, fg=MUTED, relief="flat", padx=15, pady=5)
             button.pack(side="left", padx=(0, 4))
             self.view_buttons[key] = button
+        self.start_button = tk.Button(top, text="开始提醒", command=self._start_monitoring,
+                                      bg=ACCENT, fg=BG, relief="flat", padx=14, pady=5)
+        self.start_button.pack(side="left", padx=(8, 0))
         self.conn_var = tk.StringVar(value="连接中")
         tk.Label(top, textvariable=self.conn_var, bg=PANEL_ALT, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), padx=10, pady=4).pack(side="right")
@@ -285,6 +290,15 @@ class App(tk.Tk):
                              fg=BG if key == name else MUTED)
         if name == "records":
             self._refresh_records()
+
+    def _start_monitoring(self) -> None:
+        if self.monitoring_enabled:
+            return
+        self.core.begin_session(datetime.now().astimezone())
+        self.monitoring_enabled = True
+        self.start_button.configure(text="提醒已启动", state="disabled", bg=PANEL_ALT, fg=MUTED)
+        self._show_view("overview")
+        self._render()
 
     def _refresh_records(self) -> None:
         self.records_tree.delete(*self.records_tree.get_children())
@@ -568,7 +582,8 @@ class App(tk.Tk):
         now = datetime.now().astimezone()
         try:
             self._consume_messages(now)
-            if self.core.tick(now, self._connected(now)):
+            if (self.monitoring_enabled and self.active_view != "settings"
+                    and self.core.tick(now, self._connected(now))):
                 self._persist_runtime()
             if self.core.alert_active:
                 self._show_alert()
@@ -622,7 +637,9 @@ class App(tk.Tk):
         self.goal_var.set(f"每日目标 {self.core.settings.daily_goal_ml} ml · 达成 {confirmed / self.core.settings.daily_goal_ml:.0%}"
                           + (f" · 另有估算 {estimated:.0f} ml" if estimated else ""))
         self._draw_progress(min(1.0, confirmed / self.core.settings.daily_goal_ml))
-        if self.core.alert_active:
+        if not self.monitoring_enabled:
+            self.next_var.set("准备中 · 设置完成后开始提醒")
+        elif self.core.alert_active:
             remaining = max(0, self.core.settings.sip_target_ml - self.core.alert_progress_ml)
             self.next_var.set(f"提醒中 · 还需 {remaining:.0f} ml")
         elif not connected:
@@ -676,9 +693,7 @@ class App(tk.Tk):
         window.grab_set()
         body = tk.Frame(window, bg=BG)
         body.place(relx=0.5, rely=0.5, anchor="center")
-        title = ("上次提醒尚未完成" if self.core.alert_started == self._restored_alert_started
-                 else "现在喝水。")
-        self._label(body, title, 48, TEXT, True).pack(pady=(0, 20))
+        self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
         self.alert_text = tk.StringVar()
         tk.Label(body, textvariable=self.alert_text, bg=BG, fg=ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))

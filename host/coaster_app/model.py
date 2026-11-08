@@ -88,6 +88,13 @@ class HydrationCore:
         self.last_qualified = last_qualified
         self.alert_started = alert_started
         self.alert_progress_ml = max(0.0, alert_progress_ml)
+        self.session_started_at: datetime | None = None
+
+    def begin_session(self, now: datetime) -> None:
+        """Start reminder timing when the user finishes setup for this launch."""
+        self.alert_started = None
+        self.alert_progress_ml = 0.0
+        self.session_started_at = now
 
     @property
     def alert_active(self) -> bool:
@@ -99,6 +106,8 @@ class HydrationCore:
             return None
         start, end = shift
         baseline = self.last_qualified if self.last_qualified and self.last_qualified >= start else start
+        if self.session_started_at is not None and self.session_started_at > baseline:
+            baseline = self.session_started_at
         due = baseline + timedelta(minutes=self.settings.interval_min)
         return due if due < end else None
 
