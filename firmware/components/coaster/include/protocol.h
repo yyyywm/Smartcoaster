@@ -15,7 +15,7 @@
  *   {"cmd":"set_reminder","minutes":45}
  *   {"cmd":"set_scale","value":384.7}
  *   {"cmd":"set_cup_calibration","empty_g":120.0,"full_g":620.0}
- *   {"cmd":"calibrate_empty"}      // 空杯垫时调用，手动校准基线
+ *   {"cmd":"calibrate_empty"}      // 用户确认杯垫空载后调用；即使误报有杯也可归零
  *   {"cmd":"get_config"}
  */
 #ifndef COASTER_PROTOCOL_H

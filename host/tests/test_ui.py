@@ -32,6 +32,33 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_empty_pad_zero_recovers_false_cup_and_clears_cup_calibration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            store.save_settings(Settings(cup_tare_g=120, cup_full_g=620))
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM18", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                app = App(store, feed, messages)
+            try:
+                now = datetime.now().astimezone()
+                app.connection = True
+                app.last_frame_at = now
+                app.device_state = "stable"
+                app.weight_g = 90.5
+                app._zero_pad()
+                self.assertEqual(feed.commands, [])
+                app._zero_pad()
+                self.assertEqual(feed.commands, [{"cmd": "calibrate_empty"}])
+                app._handle_frame({"ack": "calibrate_empty", "ok": 1}, now)
+                self.assertIsNone(app.core.settings.cup_tare_g)
+                self.assertIsNone(store.load_settings().cup_full_g)
+                self.assertIsNone(app.weight_g)
+                self.assertEqual(app.device_state, "unknown")
+            finally:
+                app.update_idletasks()
+                app._shutdown()
+
     def test_offline_pending_alert_does_not_block_app_close(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")

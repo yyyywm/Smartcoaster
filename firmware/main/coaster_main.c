@@ -39,6 +39,8 @@ static const char *TAG = "coaster";
 
 #define STATUS_EVERY_SAMPLES          20       /* 每 ~2s 广播一次状态 */
 #define REMIND_CHECK_SAMPLES          10       /* 每 ~1s 检查一次提醒 */
+#define BASELINE_SAVE_INTERVAL_US     (15LL * 60 * 1000000)
+#define BASELINE_SAVE_DELTA_G         10.0f
 
 static coaster_handle_t s_coaster;
 static SemaphoreHandle_t s_state_mutex;
@@ -50,6 +52,8 @@ static float    s_session_ml = 0;              /* 本次上电累计喝水量 */
 static int64_t  s_last_drink_us;               /* 上次喝水时间（上电即重置） */
 static int64_t  s_last_remind_us;
 static int32_t  s_last_raw;                    /* 最近采样（供 calibrate_empty 用） */
+static int32_t  s_saved_baseline_raw;          /* 最近写入 NVS 的空载基线 */
+static int64_t  s_last_baseline_save_us;
 
 /** 把当前状态机内部量存入 NVS */
 static esp_err_t persist_state(void)
@@ -118,15 +122,15 @@ static void on_command(const cJSON *root, void *ctx)
     } else if (strcmp(c, "estimate_on_refill") == 0) {
         protocol_send_ack(c, false);  /* 无法由补水后的重量推断期间饮水量 */
     } else if (strcmp(c, "calibrate_empty") == 0) {
-        if (coaster_state(s_coaster) == COASTER_STATE_NO_CUP) {
-            coaster_set_baseline(s_coaster, s_last_raw);
-            persist_state();
-            persist_config();
+        /* 用户已确认杯垫空载；旧基线误判为有杯时也必须允许恢复。 */
+        coaster_set_baseline(s_coaster, s_last_raw);
+        bool ok = (persist_state() == ESP_OK && persist_config() == ESP_OK);
+        if (ok) {
+            s_saved_baseline_raw = coaster_baseline_raw(s_coaster);
+            s_last_baseline_save_us = esp_timer_get_time();
             ESP_LOGI(TAG, "manual baseline calibrate: %" PRId32, s_last_raw);
-            protocol_send_ack(c, true);
-        } else {
-            protocol_send_ack(c, false);
         }
+        protocol_send_ack(c, ok);
     } else if (strcmp(c, "set_cup_calibration") == 0) {
         const cJSON *empty = cJSON_GetObjectItem(root, "empty_g");
         const cJSON *full = cJSON_GetObjectItem(root, "full_g");
@@ -214,6 +218,8 @@ void app_main(void)
 
     s_last_drink_us = esp_timer_get_time();
     s_last_remind_us = s_last_drink_us;
+    s_saved_baseline_raw = coaster_baseline_raw(s_coaster);
+    s_last_baseline_save_us = s_last_drink_us;
 
     s_state_mutex = xSemaphoreCreateMutex();
     if (s_state_mutex == NULL) {
@@ -240,7 +246,20 @@ void app_main(void)
          * after the feed returns, including quiet settles with no event. */
         if (previous_state == COASTER_STATE_SETTLING &&
             coaster_state(s_coaster) == COASTER_STATE_STABLE) {
-            persist_state();
+            if (persist_state() == ESP_OK) {
+                s_saved_baseline_raw = coaster_baseline_raw(s_coaster);
+            }
+        }
+        /* 空载慢速跟漂也要定期持久化，避免重启后恢复过旧零点。 */
+        int64_t now_us = esp_timer_get_time();
+        if (coaster_state(s_coaster) == COASTER_STATE_NO_CUP &&
+            now_us - s_last_baseline_save_us >= BASELINE_SAVE_INTERVAL_US) {
+            int32_t current_baseline = coaster_baseline_raw(s_coaster);
+            if (fabsf((float)((int64_t)current_baseline - s_saved_baseline_raw) / s_scale)
+                    >= BASELINE_SAVE_DELTA_G && persist_state() == ESP_OK) {
+                s_saved_baseline_raw = current_baseline;
+            }
+            s_last_baseline_save_us = now_us;
         }
         xSemaphoreGive(s_state_mutex);
         sample++;

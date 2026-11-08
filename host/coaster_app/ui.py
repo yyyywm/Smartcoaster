@@ -57,6 +57,8 @@ class App(tk.Tk):
         self._tick_jobs: list[str] = []
         self.tare_pending: tuple[float, float] | None = None
         self.full_pending: tuple[float, float] | None = None
+        self.zero_pending: float | None = None
+        self.zero_in_flight_at: float | None = None
         self.records_page = 0
         self.records_dirty = True
         self.delete_pending: tuple[str, float, tuple[int, ...]] | None = None
@@ -227,6 +229,12 @@ class App(tk.Tk):
         tk.Button(settings_panel, text="保存设置", command=self._save_settings,
                   bg=ACCENT, fg=BG, activebackground=ACCENT, relief="flat",
                   font=("Microsoft YaHei UI", 10, "bold"), pady=5).pack(fill="x", pady=(8, 6))
+        self._label(calibration_panel, "杯垫空着却显示有杯？移走所有物品后归零；杯子标定需重做。",
+                    9, MUTED, wraplength=340, justify="left").pack(anchor="w", pady=(0, 8))
+        self.zero_button = tk.Button(calibration_panel, text="杯垫空载归零",
+                                     command=self._zero_pad,
+                                     bg=PANEL_ALT, fg=TEXT, relief="flat", pady=5)
+        self.zero_button.pack(fill="x", pady=(0, 14))
         self._label(calibration_panel, "先放空杯并记录；再装满水记录满杯重。",
                     9, MUTED, wraplength=340, justify="left").pack(anchor="w", pady=(0, 14))
         self.tare_button = tk.Button(calibration_panel, text="空杯放上后，记录空杯重",
@@ -406,6 +414,23 @@ class App(tk.Tk):
         self.full_pending = None
         self.full_button.configure(text="加满水后，记录满杯重")
 
+    def _zero_pad(self) -> None:
+        if self.demo_mode or not self._connected(datetime.now().astimezone()):
+            self.zero_pending = None
+            self.zero_button.configure(text="杯垫空载归零")
+            self._set_action_status("请先连接真实杯垫，再执行空载归零。", error=True)
+            return
+        if self.zero_pending is None or time.monotonic() - self.zero_pending > 30:
+            self.zero_pending = time.monotonic()
+            self.zero_button.configure(text="确认杯垫为空，执行归零")
+            self._set_action_status("确认杯垫上没有杯子或其他物品，再点击一次归零。")
+            return
+        self.zero_pending = None
+        self.zero_in_flight_at = time.monotonic()
+        self.zero_button.configure(text="正在归零…", state="disabled")
+        self.feed.send_command({"cmd": "calibrate_empty"})
+        self._set_action_status("正在等待杯垫归零结果…")
+
     def _sync_calibration(self) -> None:
         if (self.core.settings.cup_tare_g is not None and self.feed is not None
                 and hasattr(self.feed, "send_command")):
@@ -464,6 +489,22 @@ class App(tk.Tk):
                 and (now - self.last_frame_at).total_seconds() < 6)
 
     def _handle_frame(self, frame: dict, now: datetime) -> None:
+        if frame.get("ack") == "calibrate_empty":
+            self.zero_in_flight_at = None
+            self.zero_button.configure(text="杯垫空载归零", state="normal")
+            if frame.get("ok"):
+                self.core.settings.cup_tare_g = None
+                self.core.settings.cup_full_g = None
+                self.store.save_settings(self.core.settings)
+                self.weight_g = None
+                self.device_state = "unknown"
+                self._reset_tare_confirmation()
+                self._reset_full_confirmation()
+                self._set_action_status("杯垫已归零；请重新记录空杯重和满杯重。")
+                self._render()
+            else:
+                self._set_action_status("杯垫归零失败，请检查设备连接或固件版本。", error=True)
+            return
         if frame.get("ack") == "set_cup_calibration":
             self.calibration_sync_error = not bool(frame.get("ok"))
             if self.calibration_sync_error:
@@ -561,6 +602,9 @@ class App(tk.Tk):
         self.connection = False
         self.connection_detail = "已断开"
         self.calibration_sync_error = False
+        self.zero_pending = None
+        self.zero_in_flight_at = None
+        self.zero_button.configure(text="杯垫空载归零", state="normal")
         self.last_frame_at = None
         self.weight_g = None
         self.device_state = "unknown"
@@ -590,6 +634,11 @@ class App(tk.Tk):
         now = datetime.now().astimezone()
         try:
             self._consume_messages(now)
+            if (self.zero_in_flight_at is not None and
+                    time.monotonic() - self.zero_in_flight_at > 10):
+                self.zero_in_flight_at = None
+                self.zero_button.configure(text="杯垫空载归零", state="normal")
+                self._set_action_status("等待杯垫归零响应超时，请检查连接后重试。", error=True)
             connected = self._connected(now)
             if self.active_view != "settings" and self.core.tick(now, connected):
                 self._persist_runtime()
