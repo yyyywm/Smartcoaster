@@ -80,7 +80,7 @@ def active_shift(now: datetime, settings: Settings) -> tuple[datetime, datetime]
 
 
 class HydrationCore:
-    """A reminder stays active until enough confirmed water is drunk."""
+    """A reminder ends after confirmed drinking or an explicit dismissal."""
 
     def __init__(self, settings: Settings, last_qualified: datetime | None = None,
                  alert_started: datetime | None = None, alert_progress_ml: float = 0.0):
@@ -89,12 +89,27 @@ class HydrationCore:
         self.alert_started = alert_started
         self.alert_progress_ml = max(0.0, alert_progress_ml)
         self.session_started_at: datetime | None = None
+        self.snoozed_until: datetime | None = None
 
     def begin_session(self, now: datetime) -> None:
         """Start or resume reminder timing after launch or setup."""
         self.alert_started = None
         self.alert_progress_ml = 0.0
         self.session_started_at = now
+        self.snoozed_until = None
+
+    def snooze_delay(self) -> timedelta:
+        """Retry soon, but always before the normal interval expires."""
+        return timedelta(seconds=min(300, self.settings.interval_min * 30))
+
+    def dismiss_alert(self, now: datetime) -> bool:
+        """Dismiss this reminder without recording a drink; retry after a short snooze."""
+        if not self.alert_active:
+            return False
+        self.alert_started = None
+        self.alert_progress_ml = 0.0
+        self.snoozed_until = now + self.snooze_delay()
+        return True
 
     @property
     def alert_active(self) -> bool:
@@ -105,6 +120,8 @@ class HydrationCore:
         if shift is None:
             return None
         start, end = shift
+        if self.snoozed_until is not None and self.snoozed_until >= start:
+            return self.snoozed_until if self.snoozed_until < end else None
         baseline = self.last_qualified if self.last_qualified and self.last_qualified >= start else start
         if self.session_started_at is not None and self.session_started_at > baseline:
             baseline = self.session_started_at
@@ -119,6 +136,7 @@ class HydrationCore:
         if due is not None and now >= due:
             self.alert_started = now
             self.alert_progress_ml = 0.0
+            self.snoozed_until = None
             return True
         return False
 
@@ -132,9 +150,11 @@ class HydrationCore:
                 self.alert_started = None
                 self.alert_progress_ml = 0.0
                 self.last_qualified = now
+                self.snoozed_until = None
                 return True
         elif amount_ml >= self.settings.sip_target_ml:
             self.last_qualified = now
+            self.snoozed_until = None
         return False
 
     def water_ml(self, weight_g: float | None, state: str) -> float | None:

@@ -369,7 +369,7 @@ class ReminderWindowTests(unittest.TestCase):
             finally:
                 app._shutdown()
 
-    def test_fullscreen_reminder_requires_confirmed_drink(self):
+    def test_reminder_can_be_dismissed_without_closing_app_or_recording_drink(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
             now = datetime.now().astimezone()
@@ -385,8 +385,30 @@ class ReminderWindowTests(unittest.TestCase):
                 app._tick()
                 self.assertIsNotNone(app.alert_window)
                 self.assertTrue(app.alert_window.attributes("-fullscreen"))
-                app._on_close()
+                self.assertIn("5 分钟", app.dismiss_button.cget("text"))
+                callback = app.tk.call("wm", "protocol", app.alert_window._w,
+                                       "WM_DELETE_WINDOW")
+                app.tk.call(callback)
                 self.assertTrue(app.winfo_exists())
+                self.assertIsNone(app.alert_window)
+                self.assertFalse(app.core.alert_active)
+                self.assertEqual(store.today_totals(now), (0, 0))
+                app._tick()
+                self.assertIsNone(app.alert_window)
+                app.core.alert_started = now
+                app._tick()
+                app.update()
+                app.alert_window.event_generate("<Escape>")
+                self.assertIsNone(app.alert_window)
+                self.assertTrue(app.winfo_exists())
+                app.core.alert_started = now
+                app._tick()
+                app.update()
+                app.alert_window.event_generate("<Control-Shift-Q>")
+                self.assertIsNone(app.alert_window)
+                self.assertTrue(app.winfo_exists())
+                app.core.alert_started = now
+                app._tick()
                 app._handle_frame({"event": "drink", "ml": 200, "estimated": 1}, now)
                 self.assertTrue(app.core.alert_active)
                 app._handle_frame({"event": "drink", "ml": 80, "estimated": 0}, now)
@@ -396,4 +418,5 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertIsNone(app.alert_window)
                 self.assertEqual(store.today_totals(now), (150, 200))
             finally:
+                app.update()
                 app._shutdown()

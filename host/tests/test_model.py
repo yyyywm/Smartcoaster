@@ -47,6 +47,32 @@ class SettingsTests(unittest.TestCase):
 
 
 class ReminderTests(unittest.TestCase):
+    def test_dismiss_alert_snoozes_without_claiming_a_drink(self):
+        core = HydrationCore(Settings(interval_min=45), alert_started=at(10))
+        self.assertTrue(core.dismiss_alert(at(10, 1)))
+        self.assertFalse(core.alert_active)
+        self.assertIsNone(core.last_qualified)
+        self.assertEqual(core.due_at(at(10, 1)), at(10, 6))
+        self.assertFalse(core.tick(at(10, 5), True))
+        self.assertTrue(core.tick(at(10, 6), True))
+
+    def test_short_interval_uses_half_interval_and_drink_cancels_snooze(self):
+        core = HydrationCore(Settings(interval_min=5, sip_target_ml=150),
+                             alert_started=at(10))
+        core.dismiss_alert(at(10, 1))
+        self.assertEqual(core.due_at(at(10, 1)), at(10, 3) + timedelta(seconds=30))
+        core.register_drink(at(10, 2), 150, False)
+        self.assertEqual(core.last_qualified, at(10, 2))
+        self.assertEqual(core.due_at(at(10, 2)), at(10, 7))
+
+    def test_snooze_past_work_end_waits_for_next_shift(self):
+        core = HydrationCore(Settings(interval_min=45), alert_started=at(17, 55))
+        core.dismiss_alert(at(17, 56))
+        self.assertIsNone(core.due_at(at(17, 56)))
+        self.assertFalse(core.tick(at(17, 59), True))
+        self.assertEqual(core.due_at(at(9, 0) + timedelta(days=1)),
+                         at(9, 45) + timedelta(days=1))
+
     def test_new_session_starts_interval_from_activation(self):
         core = HydrationCore(Settings(work_start="01:00", work_end="23:00",
                                       interval_min=5), alert_started=at(1, 26))

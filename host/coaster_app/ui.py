@@ -75,7 +75,7 @@ class App(tk.Tk):
         self.minsize(min(MIN_WINDOW_WIDTH, width),
                      min(round(MIN_WINDOW_WIDTH / GOLDEN_RATIO), height))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.bind_all("<Control-Shift-Q>", self._emergency_exit)
+        self.bind_all("<Control-Shift-Q>", self._dismiss_alert)
         self._build()
         self.feed.start()
         self._schedule_tick(250)
@@ -192,7 +192,7 @@ class App(tk.Tk):
         self.next_var = tk.StringVar(value="等待设备")
         tk.Label(schedule_body, textvariable=self.next_var, bg=PANEL, fg=ALERT,
                  font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
-        self._label(schedule_body, "仅在工作时段内开始提醒；已出现的提醒需饮水完成。",
+        self._label(schedule_body, "仅在工作时段内开始提醒；可饮水完成或关闭本次提醒。",
                     9, MUTED, wraplength=260, justify="left").pack(anchor="w", pady=(8, 0))
 
         settings_view = self.views["settings"]
@@ -745,11 +745,9 @@ class App(tk.Tk):
         window.configure(bg=BG)
         window.attributes("-fullscreen", True)
         window.attributes("-topmost", True)
-        window.protocol("WM_DELETE_WINDOW", lambda: None)
-        window.bind("<Escape>", lambda _event: "break")
-        window.bind("<Alt-F4>", lambda _event: "break")
-        window.bind("<Control-Shift-Q>", self._emergency_exit)
-        window.grab_set()
+        window.protocol("WM_DELETE_WINDOW", self._dismiss_alert)
+        window.bind("<Escape>", self._dismiss_alert)
+        window.bind("<Alt-F4>", self._dismiss_alert)
         body = tk.Frame(window, bg=BG)
         body.place(relx=0.5, rely=0.5, anchor="center")
         self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
@@ -761,35 +759,43 @@ class App(tk.Tk):
         if self.demo_mode:
             tk.Button(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                       bg=ACCENT, fg=BG, relief="flat", padx=26, pady=10).pack(pady=25)
-        self._label(body, "紧急关闭整个软件：Ctrl + Shift + Q", 10, MUTED).pack(pady=(50, 0))
+        snooze_seconds = int(self.core.snooze_delay().total_seconds())
+        if snooze_seconds >= 60:
+            minutes, seconds = divmod(snooze_seconds, 60)
+            snooze_text = f"{minutes} 分钟" if seconds == 0 else f"{minutes} 分 {seconds} 秒"
+        else:
+            snooze_text = f"{snooze_seconds} 秒"
+        self.dismiss_button = tk.Button(body, text=f"稍后提醒（{snooze_text}）",
+                                        command=self._dismiss_alert, bg=PANEL_ALT,
+                                        fg=TEXT, relief="flat", padx=26, pady=10)
+        self.dismiss_button.pack(pady=(25, 10))
+        self._label(body, "关闭后不会记录饮水；稍后会再次提醒。",
+                    11, MUTED).pack()
+        self._label(body, "Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
+                    10, MUTED).pack(pady=(28, 0))
+        window.lift()
+        window.focus_force()
         self._update_alert()
 
     def _update_alert(self) -> None:
         if self.alert_window is None:
             return
         remaining = max(0, self.core.settings.sip_target_ml - self.core.alert_progress_ml)
-        self.alert_text.set(f"还需确认饮水 {remaining:.0f} ml")
-        self.alert_window.lift()
-        self.alert_window.focus_force()
+        self.alert_text.set(f"建议再喝 {remaining:.0f} ml")
 
     def _hide_alert(self) -> None:
         if self.alert_window is not None:
-            try:
-                self.alert_window.grab_release()
-            except tk.TclError:
-                pass
             self.alert_window.destroy()
             self.alert_window = None
 
     def _on_close(self) -> None:
-        if (self.core.alert_active and self.active_view != "settings"
-                and self._connected(datetime.now().astimezone())):
-            self._show_alert()
-            return
         self._shutdown()
 
-    def _emergency_exit(self, _event=None) -> str:
-        self._shutdown()
+    def _dismiss_alert(self, _event=None) -> str:
+        if self.core.dismiss_alert(datetime.now().astimezone()):
+            self._persist_runtime()
+            self._hide_alert()
+            self._render()
         return "break"
 
     def _shutdown(self) -> None:
