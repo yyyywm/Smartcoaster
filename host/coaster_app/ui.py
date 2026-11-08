@@ -18,7 +18,7 @@ from PIL import ImageTk
 
 from .displays import monitor_bounds, position_window
 from .model import HydrationCore, Settings
-from .reminder_image import import_picture, load_picture, render_picture
+from .reminder_image import frost_text_panel, import_picture, load_picture, render_picture
 from .rounded_panel import RoundedField, RoundedPanel
 from .soft_button import SoftButton
 from .storage import Store
@@ -36,7 +36,6 @@ WATER = "#46B1D3"
 ALERT = "#B96C43"
 DANGER = "#A94C4C"
 REMINDER_BG = "#10232C"
-REMINDER_PANEL = "#19313C"
 REMINDER_TEXT = "#F4FBFD"
 REMINDER_MUTED = "#BDD0D7"
 REMINDER_ACCENT = "#80DCCC"
@@ -70,6 +69,7 @@ class App(tk.Tk):
         self.alert_windows: list[tk.Toplevel] = []
         self.alert_bounds: list[tuple[int, int, int, int]] = []
         self.alert_images: list[ImageTk.PhotoImage] = []
+        self.alert_text_items: list[tuple[tk.Canvas, int]] = []
         self._closing = False
         self._tick_jobs: list[str] = []
         self.tare_pending: tuple[float, float] | None = None
@@ -921,24 +921,22 @@ class App(tk.Tk):
         window.protocol("WM_DELETE_WINDOW", self._dismiss_alert)
         window.bind("<Escape>", self._dismiss_alert)
         window.bind("<Alt-F4>", self._dismiss_alert)
-        body_bg = REMINDER_BG
         if picture is not None:
             try:
                 rendered = render_picture(picture, bounds[2:],
                                           self.core.settings.reminder_image_mode)
-                photo = ImageTk.PhotoImage(rendered, master=window)
-                self.alert_images.append(photo)
-                tk.Label(window, image=photo, borderwidth=0).place(
-                    x=0, y=0, relwidth=1, relheight=1)
-                body_bg = REMINDER_PANEL
+                self._build_picture_alert(window, rendered)
+                window.update_idletasks()
+                window.deiconify()
+                position_window(window, bounds)
+                window.attributes("-alpha", 1)
+                return
             except (ValueError, OSError, MemoryError, tk.TclError) as exc:
                 self.image_status.set(f"背景显示失败，已使用默认背景：{exc}")
-        body = tk.Frame(window, bg=body_bg,
-                        padx=36 if body_bg == REMINDER_PANEL else 0,
-                        pady=30 if body_bg == REMINDER_PANEL else 0)
+        body = tk.Frame(window, bg=REMINDER_BG)
         body.place(relx=0.5, rely=0.5, anchor="center")
         self._label(body, "该喝水了", 48, REMINDER_TEXT, True).pack(pady=(0, 20))
-        tk.Label(body, textvariable=self.alert_text, bg=body_bg, fg=REMINDER_ACCENT,
+        tk.Label(body, textvariable=self.alert_text, bg=REMINDER_BG, fg=REMINDER_ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
                     15, REMINDER_MUTED).pack()
@@ -947,13 +945,7 @@ class App(tk.Tk):
                       bg=REMINDER_ACCENT, fg=REMINDER_BG, relief="flat", padx=26, pady=10,
                       activebackground="#A9EBDD", activeforeground=REMINDER_BG,
                       cursor="hand2", highlightcolor=REMINDER_ACCENT).pack(pady=25)
-        snooze_seconds = int(self.core.snooze_delay().total_seconds())
-        if snooze_seconds >= 60:
-            minutes, seconds = divmod(snooze_seconds, 60)
-            snooze_text = f"{minutes} 分钟" if seconds == 0 else f"{minutes} 分 {seconds} 秒"
-        else:
-            snooze_text = f"{snooze_seconds} 秒"
-        dismiss_button = SoftButton(body, text=f"稍后提醒（{snooze_text}）",
+        dismiss_button = SoftButton(body, text=f"稍后提醒（{self._snooze_text()}）",
                                    command=self._dismiss_alert, bg="#284550",
                                    fg=REMINDER_TEXT, relief="flat", padx=26, pady=10,
                                    activebackground="#355B68",
@@ -971,11 +963,69 @@ class App(tk.Tk):
         position_window(window, bounds)
         window.attributes("-alpha", 1)
 
+    def _snooze_text(self) -> str:
+        seconds = int(self.core.snooze_delay().total_seconds())
+        if seconds < 60:
+            return f"{seconds} 秒"
+        minutes, remaining = divmod(seconds, 60)
+        return f"{minutes} 分钟" if remaining == 0 else f"{minutes} 分 {remaining} 秒"
+
+    def _build_picture_alert(self, window: tk.Toplevel, rendered) -> None:
+        width, height = rendered.size
+        scale = min(1.0, width / 850, height / 650)
+        panel_width = min(width - 32, round(650 * scale))
+        panel_height = min(height - 32, round((490 if self.demo_mode else 440) * scale))
+        left = (width - panel_width) // 2
+        top = (height - panel_height) // 2
+        panel = (left, top, left + panel_width, top + panel_height)
+        surface = frost_text_panel(rendered, panel)
+        center = width // 2
+        backdrop = "#" + "".join(f"{channel:02x}" for channel in
+                                 surface.getpixel((center, top + panel_height // 2)))
+        photo = ImageTk.PhotoImage(surface, master=window)
+        self.alert_images.append(photo)
+        canvas = tk.Canvas(window, width=width, height=height, bg=backdrop,
+                           highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True)
+        canvas.create_image(0, 0, image=photo, anchor="nw")
+
+        def add_text(message: str, y: int, size: int, color: str,
+                     bold: bool = False, wrap: int | None = None) -> int:
+            return canvas.create_text(center, top + round(y * scale), text=message,
+                                      anchor="n", fill=color,
+                                      font=("Microsoft YaHei UI", max(9, round(size * scale)),
+                                            "bold" if bold else "normal"),
+                                      width=wrap or panel_width - 54, justify="center")
+
+        add_text("该喝水了", 32, 42, TEXT, True)
+        text_item = add_text("", 135, 22, ACCENT)
+        self.alert_text_items.append((canvas, text_item))
+        add_text("拿起杯子喝水，放回杯垫后会自动解除提醒。", 190, 14, TEXT)
+        if self.demo_mode:
+            simulate = SoftButton(canvas, text="模拟喝水",
+                                  command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
+                                  bg=ACCENT, fg="#FFFFFF", padx=26, pady=9)
+            canvas.create_window(center, top + round(265 * scale), window=simulate)
+        dismiss_y = 325 if self.demo_mode else 265
+        dismiss = SoftButton(canvas, text=f"稍后提醒（{self._snooze_text()}）",
+                             command=self._dismiss_alert, bg=ACCENT, fg="#FFFFFF",
+                             padx=24, pady=9)
+        canvas.create_window(center, top + round(dismiss_y * scale), window=dismiss)
+        if window is self.alert_window:
+            self.dismiss_button = dismiss
+        hint_y = 380 if self.demo_mode else 325
+        add_text("关闭后不会记录饮水；稍后会再次提醒。", hint_y, 11, MUTED)
+        add_text("Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
+                 hint_y + 46, 10, MUTED)
+
     def _update_alert(self) -> None:
         if self.alert_window is None:
             return
         remaining = max(0, self.core.settings.sip_target_ml - self.core.alert_progress_ml)
-        self.alert_text.set(f"建议再喝 {remaining:.0f} ml")
+        message = f"建议再喝 {remaining:.0f} ml"
+        self.alert_text.set(message)
+        for canvas, item in self.alert_text_items:
+            canvas.itemconfigure(item, text=message)
 
     def _hide_alert(self) -> None:
         for window in self.alert_windows:
@@ -983,6 +1033,7 @@ class App(tk.Tk):
         self.alert_windows.clear()
         self.alert_bounds.clear()
         self.alert_images.clear()
+        self.alert_text_items.clear()
         self.alert_window = None
 
     def _on_close(self) -> None:

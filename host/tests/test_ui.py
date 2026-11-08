@@ -123,10 +123,14 @@ class ReminderWindowTests(unittest.TestCase):
                            return_value=[(0, 0, 800, 600), (800, -100, 1000, 700)]):
                     app._tick()
                 self.assertEqual(len(app.alert_images), 2)
+                self.assertEqual(len(app.alert_text_items), 2)
+                for canvas, item in app.alert_text_items:
+                    self.assertIn("建议再喝", canvas.itemcget(item, "text"))
                 self.assertEqual(app.alert_images[0].width(), 800)
                 self.assertEqual(app.alert_images[1].width(), 1000)
                 app._dismiss_alert()
                 self.assertEqual(app.alert_images, [])
+                self.assertEqual(app.alert_text_items, [])
                 Path(saved).unlink()
                 app.core.alert_started = datetime.now().astimezone()
                 with patch("coaster_app.ui.monitor_bounds",

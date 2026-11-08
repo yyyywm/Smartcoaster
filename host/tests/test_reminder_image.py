@@ -4,10 +4,17 @@ import unittest
 
 from PIL import Image
 
-from coaster_app.reminder_image import import_picture, load_picture, render_picture
+from coaster_app.reminder_image import frost_text_panel, import_picture, load_picture, render_picture
 
 
 class ReminderImageTests(unittest.TestCase):
+    def test_frosted_text_panel_keeps_background_visible(self):
+        background = Image.new("RGB", (120, 90), "#427A9B")
+        result = frost_text_panel(background, (20, 15, 100, 75))
+        self.assertEqual(result.getpixel((5, 5)), background.getpixel((5, 5)))
+        self.assertNotEqual(result.getpixel((60, 45)), background.getpixel((60, 45)))
+        self.assertNotEqual(result.getpixel((60, 45)), (247, 250, 251))
+
     def test_small_image_is_centered_without_upscaling(self):
         picture = Image.new("RGB", (40, 20), (200, 0, 0))
         rendered = render_picture(picture, (200, 100), "smart")

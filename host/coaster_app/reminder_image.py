@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import shutil
 
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
 
 
 MAX_FILE_BYTES = 30 * 1024 * 1024
@@ -82,3 +82,17 @@ def render_picture(picture: Image.Image, size: tuple[int, int], mode: str) -> Im
     y = (height - foreground.height) // 2
     backdrop.paste(foreground, (x, y))
     return backdrop
+
+
+def frost_text_panel(background: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
+    """Blend a light, translucent reading surface over the actual picture."""
+    left, top, right, bottom = box
+    result = background.convert("RGB").copy()
+    region = result.crop(box)
+    softened = region.filter(ImageFilter.GaussianBlur(8))
+    tinted = Image.blend(softened, Image.new("RGB", region.size, "#F7FAFB"), 0.66)
+    mask = Image.new("L", region.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, right - left - 1, bottom - top - 1), radius=24, fill=255)
+    result.paste(tinted, (left, top), mask)
+    return result
