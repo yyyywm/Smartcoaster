@@ -4,6 +4,8 @@
 
 Windows 下应用会在创建窗口前启用 DPI 感知，让高分辨率屏幕上的文字按原生像素绘制。主界面采用无滚动条的单屏布局，初始窗口约为 1080 × 667（宽高比约 1.618），最小窗口约为 960 × 593；屏幕较小时会按可用空间缩小。
 
+界面按钮采用连续曲率圆角，并提供悬停渐变、按压、键盘焦点和禁用反馈；设置输入框和卡片也使用圆角。按钮可用鼠标点击，也可聚焦后按 Enter 或空格触发。
+
 ## 主要功能
 
 - 自定义上下班时间（支持跨午夜）、喝水间隔、每次提醒需喝的水量、每日目标和杯子容量。设置集中在「设置」页。
@@ -53,6 +55,8 @@ python host/smart_coaster.py --selftest      # 离线测试
 | `coaster_app/storage.py` | SQLite 设置、提醒状态和饮水记录 |
 | `coaster_app/transport.py` | 串口自动重连与演示数据 |
 | `coaster_app/ui.py` | Tk 仪表盘与全屏提醒 |
+| `coaster_app/soft_button.py` | 连续曲率按钮与交互反馈 |
+| `coaster_app/rounded_panel.py` | 圆角卡片和输入框表面 |
 | `coaster_app/water_view.py` | 双点标定后的动态水位组件 |
 | `coaster_app/reminder_image.py` | 自定义提醒背景的导入与适配 |
 | `tests/` | 脱离硬件的规则与存储测试 |

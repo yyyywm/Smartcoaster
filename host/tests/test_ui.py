@@ -11,8 +11,38 @@ from PIL import Image
 from coaster_app.displays import monitor_bounds
 from coaster_app.model import Settings
 from coaster_app.storage import Store
+from coaster_app.soft_button import SoftButton
 from coaster_app.transport import DemoFeed
 from coaster_app.ui import App
+
+
+class SoftButtonTests(unittest.TestCase):
+    def test_pointer_keyboard_and_disabled_state(self):
+        root = tk.Tk()
+        root.withdraw()
+        calls = []
+        button = SoftButton(root, text="保存设置", command=lambda: calls.append("saved"))
+        button.pack()
+        try:
+            root.deiconify()
+            root.update()
+            button.event_generate("<Enter>")
+            root.update()
+            self.assertGreater(button._motion, 0)
+            button.event_generate("<ButtonPress-1>", x=20, y=20)
+            button.event_generate("<ButtonRelease-1>", x=20, y=20)
+            self.assertEqual(calls, ["saved"])
+            button.focus_force()
+            root.update()
+            button.event_generate("<Return>")
+            self.assertEqual(calls, ["saved", "saved"])
+            button.configure(state="disabled")
+            button.event_generate("<ButtonPress-1>", x=20, y=20)
+            button.event_generate("<ButtonRelease-1>", x=20, y=20)
+            button.event_generate("<Return>")
+            self.assertEqual(calls, ["saved", "saved"])
+        finally:
+            root.destroy()
 
 
 class FakeSerialFeed:

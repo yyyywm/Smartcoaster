@@ -19,6 +19,8 @@ from PIL import ImageTk
 from .displays import monitor_bounds, position_window
 from .model import HydrationCore, Settings
 from .reminder_image import import_picture, load_picture, render_picture
+from .rounded_panel import RoundedField, RoundedPanel
+from .soft_button import SoftButton
 from .storage import Store
 from .transport import DemoFeed, SerialFeed, available_ports
 from .water_view import WaterLevelView
@@ -93,7 +95,6 @@ class App(tk.Tk):
         self._set_app_icon()
         self.bind_all("<Control-Shift-Q>", self._dismiss_alert)
         self._build()
-        self._polish_buttons(self)
         self.feed.start()
         self._schedule_tick(250)
 
@@ -111,17 +112,6 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
 
-    def _polish_buttons(self, parent) -> None:
-        for child in parent.winfo_children():
-            if isinstance(child, tk.Button):
-                primary = child.cget("bg") == ACCENT
-                child.configure(
-                    cursor="hand2", takefocus=True, highlightthickness=1,
-                    highlightbackground=child.cget("bg"), highlightcolor=ACCENT,
-                    activebackground="#086786" if primary else "#DCE8EC",
-                    activeforeground=BG if primary else TEXT)
-            self._polish_buttons(child)
-
     def _label(self, parent, text: str, size: int = 11, color: str = TEXT,
                bold: bool = False, **kwargs) -> tk.Label:
         return tk.Label(parent, text=text, bg=parent.cget("bg"), fg=color,
@@ -129,8 +119,7 @@ class App(tk.Tk):
                         **kwargs)
 
     def _panel(self, parent, title: str) -> tk.Frame:
-        panel = tk.Frame(parent, bg=PANEL, padx=14, pady=10,
-                         highlightthickness=1, highlightbackground="#DFE8EB")
+        panel = RoundedPanel(parent, surface=PANEL, padx=14, pady=10)
         self._label(panel, title, 10, MUTED, True).pack(anchor="w", pady=(0, 7))
         return panel
 
@@ -144,9 +133,9 @@ class App(tk.Tk):
         self._label(top, "智能杯垫", 17, TEXT, True).pack(side="left", padx=(0, 24))
         navigation = tk.Frame(top, bg=PANEL_ALT, padx=3, pady=3)
         navigation.pack(side="left")
-        self.view_buttons: dict[str, tk.Button] = {}
+        self.view_buttons: dict[str, SoftButton] = {}
         for key, label in (("overview", "总览"), ("settings", "设置"), ("records", "数据")):
-            button = tk.Button(navigation, text=label, command=lambda name=key: self._show_view(name),
+            button = SoftButton(navigation, text=label, command=lambda name=key: self._show_view(name),
                                bg=PANEL_ALT, fg=MUTED, relief="flat", padx=15, pady=4,
                                activebackground=PANEL, activeforeground=TEXT,
                                cursor="hand2")
@@ -167,9 +156,9 @@ class App(tk.Tk):
             self.port_combo = ttk.Combobox(devices, textvariable=self.port_var,
                                            state="readonly", width=34)
             self.port_combo.pack(side="left", padx=(0, 8))
-            tk.Button(devices, text="刷新", command=self._refresh_ports,
+            SoftButton(devices, text="刷新", command=self._refresh_ports,
                       bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12).pack(side="left", padx=(0, 8))
-            self.connect_button = tk.Button(devices, text="断开连接", command=self._toggle_connection,
+            self.connect_button = SoftButton(devices, text="断开连接", command=self._toggle_connection,
                                             bg=PANEL_ALT, fg=TEXT, relief="flat", padx=14)
             self.connect_button.pack(side="left", padx=(0, 8))
             self._refresh_ports()
@@ -213,14 +202,14 @@ class App(tk.Tk):
         tk.Label(numbers, textvariable=self.water_note, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), wraplength=220,
                  justify="left").pack(anchor="w", pady=(12, 0))
-        self.water_action = tk.Button(numbers, text="管理杯子标定 →",
+        self.water_action = SoftButton(numbers, text="管理杯子标定 →",
                                        command=lambda: self._show_view("settings"),
                                        bg=PANEL, fg=ACCENT, activebackground=PANEL,
                                        activeforeground=TEXT, relief="flat",
                                        font=("Microsoft YaHei UI", 9), padx=0, pady=0)
         self.water_action.pack(anchor="w", pady=(14, 0))
         if self.demo_mode:
-            tk.Button(numbers, text="模拟喝水 150 ml", command=lambda: self.feed.simulate_drink(150),
+            SoftButton(numbers, text="模拟喝水 150 ml", command=lambda: self.feed.simulate_drink(150),
                       bg=PANEL_ALT, fg=TEXT, relief="flat", padx=8, pady=5).pack(anchor="w", pady=12)
 
         right.rowconfigure(0, weight=1618, uniform="summary")
@@ -281,14 +270,14 @@ class App(tk.Tk):
             cell = tk.Frame(grid, bg=PANEL)
             cell.grid(row=row, column=col, sticky="ew", padx=(0, 8), pady=2)
             self._label(cell, label, 9, MUTED).pack(anchor="w")
-            entry = tk.Entry(cell, bg=PANEL_ALT, fg=TEXT, insertbackground=TEXT,
-                             relief="flat", font=("Consolas", 12), width=14)
+            field = RoundedField(cell, surface="#EEF3F5", foreground=TEXT)
+            entry = field.entry
             entry.insert(0, str(value))
-            entry.pack(fill="x", ipady=3)
+            field.pack(fill="x")
             self.entries[key] = entry
         grid.columnconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
-        tk.Button(settings_panel, text="保存设置", command=self._save_settings,
+        SoftButton(settings_panel, text="保存设置", command=self._save_settings,
                   bg=ACCENT, fg=BG, activebackground=ACCENT, relief="flat",
                   font=("Microsoft YaHei UI", 10, "bold"), pady=5).pack(fill="x", pady=(8, 6))
         self._label(settings_panel, "提醒背景", 10, TEXT, True).pack(anchor="w", pady=(8, 3))
@@ -298,23 +287,24 @@ class App(tk.Tk):
                  font=("Microsoft YaHei UI", 9), anchor="w").pack(fill="x")
         image_actions = tk.Frame(settings_panel, bg=PANEL)
         image_actions.pack(fill="x", pady=(5, 4))
-        tk.Button(image_actions, text="选择图片", command=self._choose_reminder_image,
+        SoftButton(image_actions, text="选择图片", command=self._choose_reminder_image,
                   bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="left", padx=(0, 6))
-        tk.Button(image_actions, text="恢复默认", command=self._clear_reminder_image,
+        SoftButton(image_actions, text="恢复默认", command=self._clear_reminder_image,
                   bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="left", padx=(0, 8))
         self.image_mode_var = tk.StringVar(value=next(
             (label for label, mode in IMAGE_MODES.items()
              if mode == settings.reminder_image_mode), "智能适配"))
-        self.image_mode_menu = tk.Menubutton(
-            image_actions, textvariable=self.image_mode_var, bg=PANEL_ALT, fg=TEXT,
-            activebackground=PANEL_ALT, activeforeground=TEXT, relief="flat",
-            indicatoron=True, padx=10)
+        self.image_mode_menu = SoftButton(
+            image_actions, text=self.image_mode_var.get() + "  ⌄", bg=PANEL_ALT,
+            fg=TEXT, padx=10, command=self._show_image_mode_menu)
         mode_menu = tk.Menu(self.image_mode_menu, tearoff=False, bg=PANEL_ALT,
                             fg=TEXT, activebackground=ACCENT, activeforeground=BG)
         for label in IMAGE_MODES:
             mode_menu.add_radiobutton(label=label, value=label,
                                       variable=self.image_mode_var)
-        self.image_mode_menu.configure(menu=mode_menu)
+        self.image_mode_popup = mode_menu
+        self.image_mode_var.trace_add("write", lambda *_: self.image_mode_menu.configure(
+            text=self.image_mode_var.get() + "  ⌄"))
         self.image_mode_menu.pack(side="left", fill="x", expand=True)
         self.image_status = tk.StringVar(value="小图智能居中，大图按比例铺满；选择后点保存设置。")
         tk.Label(settings_panel, textvariable=self.image_status, bg=PANEL, fg=MUTED,
@@ -322,17 +312,17 @@ class App(tk.Tk):
                  wraplength=520, justify="left").pack(fill="x")
         self._label(calibration_panel, "杯垫空着却显示有杯？移走所有物品后归零；杯子标定需重做。",
                     9, MUTED, wraplength=340, justify="left").pack(anchor="w", pady=(0, 8))
-        self.zero_button = tk.Button(calibration_panel, text="杯垫空载归零",
+        self.zero_button = SoftButton(calibration_panel, text="杯垫空载归零",
                                      command=self._zero_pad,
                                      bg=PANEL_ALT, fg=TEXT, relief="flat", pady=5)
         self.zero_button.pack(fill="x", pady=(0, 14))
         self._label(calibration_panel, "先放空杯并记录；再装满水记录满杯重。",
                     9, MUTED, wraplength=340, justify="left").pack(anchor="w", pady=(0, 14))
-        self.tare_button = tk.Button(calibration_panel, text="空杯放上后，记录空杯重",
+        self.tare_button = SoftButton(calibration_panel, text="空杯放上后，记录空杯重",
                                      command=self._calibrate_cup,
                                      bg=PANEL_ALT, fg=TEXT, relief="flat", pady=5)
         self.tare_button.pack(fill="x")
-        self.full_button = tk.Button(calibration_panel, text="加满水后，记录满杯重",
+        self.full_button = SoftButton(calibration_panel, text="加满水后，记录满杯重",
                                      command=self._calibrate_full,
                                      bg=PANEL_ALT, fg=TEXT, relief="flat", pady=5)
         self.full_button.pack(fill="x", pady=(6, 0))
@@ -361,7 +351,7 @@ class App(tk.Tk):
                                 ("删除选中", self._delete_selected),
                                 ("清空今日", lambda: self._clear_records("today")),
                                 ("清空全部", lambda: self._clear_records("all"))):
-            tk.Button(actions, text=label, command=callback, bg=PANEL_ALT,
+            SoftButton(actions, text=label, command=callback, bg=PANEL_ALT,
                       fg=DANGER if label != "导出 CSV" else TEXT,
                       relief="flat", padx=12, pady=5).pack(side="left", padx=(0, 8))
         style = ttk.Style(self)
@@ -388,11 +378,11 @@ class App(tk.Tk):
                  font=("Microsoft YaHei UI", 9), anchor="w").pack(fill="x", pady=(7, 0))
         pager = tk.Frame(recent_panel, bg=PANEL)
         pager.pack(fill="x", pady=(8, 0))
-        tk.Button(pager, text="上一页", command=lambda: self._change_records_page(-1),
+        SoftButton(pager, text="上一页", command=lambda: self._change_records_page(-1),
                   bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="left")
         self.records_page_label = tk.StringVar(value="第 1 页")
         self._label(pager, f"每页 {RECORDS_PAGE_SIZE} 条", 9, MUTED).pack(side="right")
-        tk.Button(pager, text="下一页", command=lambda: self._change_records_page(1),
+        SoftButton(pager, text="下一页", command=lambda: self._change_records_page(1),
                   bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="right", padx=(0, 8))
         tk.Label(pager, textvariable=self.records_page_label, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9)).pack(side="left", padx=12)
@@ -411,6 +401,14 @@ class App(tk.Tk):
                              fg=TEXT if key == name else MUTED)
         if name == "records":
             self._refresh_records()
+
+    def _show_image_mode_menu(self) -> None:
+        button = self.image_mode_menu
+        try:
+            self.image_mode_popup.tk_popup(button.winfo_rootx(),
+                                          button.winfo_rooty() + button.winfo_height())
+        finally:
+            self.image_mode_popup.grab_release()
 
     def _refresh_records(self) -> None:
         self.records_tree.delete(*self.records_tree.get_children())
@@ -945,7 +943,7 @@ class App(tk.Tk):
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
                     15, REMINDER_MUTED).pack()
         if self.demo_mode:
-            tk.Button(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
+            SoftButton(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                       bg=REMINDER_ACCENT, fg=REMINDER_BG, relief="flat", padx=26, pady=10,
                       activebackground="#A9EBDD", activeforeground=REMINDER_BG,
                       cursor="hand2", highlightcolor=REMINDER_ACCENT).pack(pady=25)
@@ -955,7 +953,7 @@ class App(tk.Tk):
             snooze_text = f"{minutes} 分钟" if seconds == 0 else f"{minutes} 分 {seconds} 秒"
         else:
             snooze_text = f"{snooze_seconds} 秒"
-        dismiss_button = tk.Button(body, text=f"稍后提醒（{snooze_text}）",
+        dismiss_button = SoftButton(body, text=f"稍后提醒（{snooze_text}）",
                                    command=self._dismiss_alert, bg="#284550",
                                    fg=REMINDER_TEXT, relief="flat", padx=26, pady=10,
                                    activebackground="#355B68",
