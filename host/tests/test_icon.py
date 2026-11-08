@@ -15,10 +15,11 @@ class IconTests(unittest.TestCase):
             for size in (16, 20, 24, 32, 40):
                 frame = icon.ico.getimage((size, size)).convert("RGBA")
                 self.assertEqual(frame.size, (size, size))
-                colors = frame.getcolors(maxcolors=256)
-                self.assertIsNotNone(colors)
-                self.assertLessEqual(len(colors), 6,
-                                     f"{size}px icon should use pixel-aligned shapes")
+                alpha = frame.getchannel("A")
+                self.assertLessEqual(alpha.getpixel((0, 0)), 2)
+                self.assertEqual(alpha.getpixel((size // 2, size // 2)), 255)
+                self.assertTrue(any(0 < value < 255 for value in alpha.getdata()),
+                                f"{size}px icon should have smooth edges")
 
     def test_large_icon_is_available_for_window_preview(self):
         with Image.open(ASSETS / "coaster.png") as icon:
