@@ -47,6 +47,19 @@ class SoftButtonTests(unittest.TestCase):
             root.destroy()
 
 
+class FakeTrayIcon:
+    def __init__(self, _image_path, post_action):
+        self.post_action = post_action
+        self.show_count = 0
+        self.hide_count = 0
+
+    def show(self):
+        self.show_count += 1
+
+    def hide(self):
+        self.hide_count += 1
+
+
 class FakeSerialFeed:
     def __init__(self, requested_port, messages):
         self.requested_port = requested_port
@@ -66,6 +79,41 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows 托盘行为")
+    def test_minimize_uses_tray_and_reminders_continue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            with patch("coaster_app.ui.TrayIcon", FakeTrayIcon):
+                app = App(store, DemoFeed(messages), messages)
+            try:
+                app.update()
+                app.iconify()
+                app.update()
+                self.assertEqual(app.state(), "withdrawn")
+                self.assertEqual(app.tray.show_count, 1)
+                now = datetime.now().astimezone()
+                app.core.alert_started = now
+                app.connection = True
+                app.last_frame_at = now
+                app._tick()
+                self.assertIsNotNone(app.alert_window)
+                self.assertTrue(app.alert_window.winfo_viewable())
+                app._dismiss_alert()
+                app.tray.post_action("open")
+                app._tick()
+                self.assertEqual(app.state(), "normal")
+                self.assertEqual(app.tray.hide_count, 1)
+                self.assertTrue(app.winfo_viewable())
+                app.iconify()
+                app.update()
+                self.assertEqual(app.tray.show_count, 2)
+                app.tray.post_action("quit")
+                app._tick()
+                self.assertTrue(app._closing)
+            finally:
+                app._shutdown()
+
     def test_calibrated_cup_shows_live_level_and_clears_when_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")

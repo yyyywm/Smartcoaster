@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import math
 import queue
+import sys
 import time
 
 from .dpi import enable_native_dpi, set_windows_app_id
@@ -13,7 +14,7 @@ enable_native_dpi()
 set_windows_app_id()
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from PIL import ImageTk
 
 from .displays import monitor_bounds, position_window
@@ -22,6 +23,7 @@ from .reminder_image import frost_text_panel, import_picture, load_picture, rend
 from .rounded_panel import RoundedField, RoundedPanel
 from .soft_button import SoftButton
 from .storage import Store
+from .tray import TrayIcon
 from .transport import DemoFeed, SerialFeed, available_ports
 from .water_view import WaterLevelView
 
@@ -53,6 +55,10 @@ class App(tk.Tk):
         self.feed = feed
         self.demo_mode = isinstance(feed, DemoFeed)
         self.messages = messages
+        self.tray_actions: queue.Queue[str] = queue.Queue()
+        self.tray = TrayIcon(Path(__file__).resolve().parent.parent / "assets" / "coaster.png",
+                             self.tray_actions.put)
+        self._tray_hidden = False
         settings = store.load_settings()
         last, alert, progress = store.load_runtime()
         self.core = HydrationCore(settings, last)
@@ -92,6 +98,7 @@ class App(tk.Tk):
         self.minsize(min(MIN_WINDOW_WIDTH, width),
                      min(round(MIN_WINDOW_WIDTH / GOLDEN_RATIO), height))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Unmap>", self._on_unmap)
         self._set_app_icon()
         self.bind_all("<Control-Shift-Q>", self._dismiss_alert)
         self._build()
@@ -762,6 +769,9 @@ class App(tk.Tk):
     def _tick(self) -> None:
         if self._closing:
             return
+        self._consume_tray_actions()
+        if self._closing:
+            return
         now = datetime.now().astimezone()
         try:
             self._consume_messages(now)
@@ -1039,6 +1049,44 @@ class App(tk.Tk):
     def _on_close(self) -> None:
         self._shutdown()
 
+    def _on_unmap(self, event) -> None:
+        if event.widget is self and not self._closing and not self._tray_hidden:
+            self.after_idle(self._minimize_to_tray)
+
+    def _minimize_to_tray(self) -> None:
+        if sys.platform != "win32" or self._closing or self._tray_hidden or self.state() != "iconic":
+            return
+        try:
+            self.tray.show()
+        except (ImportError, OSError, RuntimeError) as exc:
+            self.deiconify()
+            messagebox.showerror("系统托盘不可用", f"无法缩到托盘：{exc}", parent=self)
+            return
+        self._tray_hidden = True
+        self.withdraw()
+
+    def _restore_from_tray(self) -> None:
+        if not self._tray_hidden or self._closing:
+            return
+        self._tray_hidden = False
+        self.deiconify()
+        self.state("normal")
+        self.lift()
+        self.focus_force()
+        self.tray.hide()
+
+    def _consume_tray_actions(self) -> None:
+        while True:
+            try:
+                action = self.tray_actions.get_nowait()
+            except queue.Empty:
+                return
+            if action == "open":
+                self._restore_from_tray()
+            elif action == "quit":
+                self._shutdown()
+                return
+
     def _dismiss_alert(self, _event=None) -> str:
         if self.core.dismiss_alert(datetime.now().astimezone()):
             self._persist_runtime()
@@ -1056,6 +1104,7 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         self._tick_jobs.clear()
+        self.tray.hide()
         self._hide_alert()
         if self.feed is not None:
             self.feed.stop()
