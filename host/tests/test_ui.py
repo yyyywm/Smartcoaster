@@ -34,6 +34,35 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_calibrated_cup_shows_live_level_and_clears_when_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            store.save_settings(Settings(cup_tare_g=120, cup_full_g=620))
+            messages = queue.Queue()
+            feed = FakeSerialFeed("COM18", messages)
+            with patch("coaster_app.ui.available_ports", return_value=[]):
+                app = App(store, feed, messages)
+            try:
+                now = datetime.now().astimezone()
+                app.connection = True
+                app._handle_frame({"status": {"weight_g": 370, "state": "stable"}}, now)
+                app._render()
+                self.assertEqual(app.water_var.get(), "250 ml")
+                self.assertIn("50%", app.water_meta_var.get())
+                self.assertEqual(app.water_view.target, 0.5)
+                app._handle_frame({"status": {"weight_g": 0, "state": "no_cup"}}, now)
+                app._render()
+                self.assertIsNone(app.water_view.target)
+                self.assertEqual(app.water_var.get(), "-- ml")
+                app.core.settings.cup_full_g = None
+                app._handle_frame({"status": {"weight_g": 370, "state": "stable"}}, now)
+                app._render()
+                self.assertEqual(app.water_var.get(), "250 ml")
+                self.assertIsNone(app.water_view.target)
+                self.assertIn("尚未启用", app.water_meta_var.get())
+            finally:
+                app._shutdown()
+
     def test_selected_background_is_saved_and_rendered_after_source_is_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

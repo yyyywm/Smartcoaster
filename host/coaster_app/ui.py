@@ -21,16 +21,23 @@ from .model import HydrationCore, Settings
 from .reminder_image import import_picture, load_picture, render_picture
 from .storage import Store
 from .transport import DemoFeed, SerialFeed, available_ports
+from .water_view import WaterLevelView
 
 
-BG = "#101820"
-PANEL = "#1A2630"
-PANEL_ALT = "#22333D"
-TEXT = "#F4F2EA"
-MUTED = "#A9B7BB"
-ACCENT = "#65D6A6"
-WATER = "#5FB9DC"
-ALERT = "#FFB86B"
+BG = "#F3F6F7"
+PANEL = "#FFFFFF"
+PANEL_ALT = "#E9F0F2"
+TEXT = "#1D2B31"
+MUTED = "#687982"
+ACCENT = "#087DA4"
+WATER = "#46B1D3"
+ALERT = "#B96C43"
+DANGER = "#A94C4C"
+REMINDER_BG = "#10232C"
+REMINDER_PANEL = "#19313C"
+REMINDER_TEXT = "#F4FBFD"
+REMINDER_MUTED = "#BDD0D7"
+REMINDER_ACCENT = "#80DCCC"
 RECORDS_PAGE_SIZE = 10
 GOLDEN_RATIO = (1 + math.sqrt(5)) / 2
 WINDOW_WIDTH = 1080
@@ -86,6 +93,7 @@ class App(tk.Tk):
         self._set_app_icon()
         self.bind_all("<Control-Shift-Q>", self._dismiss_alert)
         self._build()
+        self._polish_buttons(self)
         self.feed.start()
         self._schedule_tick(250)
 
@@ -103,6 +111,17 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
 
+    def _polish_buttons(self, parent) -> None:
+        for child in parent.winfo_children():
+            if isinstance(child, tk.Button):
+                primary = child.cget("bg") == ACCENT
+                child.configure(
+                    cursor="hand2", takefocus=True, highlightthickness=1,
+                    highlightbackground=child.cget("bg"), highlightcolor=ACCENT,
+                    activebackground="#086786" if primary else "#DCE8EC",
+                    activeforeground=BG if primary else TEXT)
+            self._polish_buttons(child)
+
     def _label(self, parent, text: str, size: int = 11, color: str = TEXT,
                bold: bool = False, **kwargs) -> tk.Label:
         return tk.Label(parent, text=text, bg=parent.cget("bg"), fg=color,
@@ -111,7 +130,7 @@ class App(tk.Tk):
 
     def _panel(self, parent, title: str) -> tk.Frame:
         panel = tk.Frame(parent, bg=PANEL, padx=14, pady=10,
-                         highlightthickness=1, highlightbackground="#31424A")
+                         highlightthickness=1, highlightbackground="#DFE8EB")
         self._label(panel, title, 10, MUTED, True).pack(anchor="w", pady=(0, 7))
         return panel
 
@@ -121,23 +140,27 @@ class App(tk.Tk):
         page.pack(fill="both", expand=True)
 
         top = tk.Frame(page, bg=BG)
-        top.pack(fill="x", padx=18, pady=(10, 6))
-        self._label(top, "智能杯垫", 17, TEXT, True).pack(side="left", padx=(0, 26))
+        top.pack(fill="x", padx=18, pady=(12, 8))
+        self._label(top, "智能杯垫", 17, TEXT, True).pack(side="left", padx=(0, 24))
+        navigation = tk.Frame(top, bg=PANEL_ALT, padx=3, pady=3)
+        navigation.pack(side="left")
         self.view_buttons: dict[str, tk.Button] = {}
         for key, label in (("overview", "总览"), ("settings", "设置"), ("records", "数据")):
-            button = tk.Button(top, text=label, command=lambda name=key: self._show_view(name),
-                               bg=BG, fg=MUTED, relief="flat", padx=15, pady=5)
-            button.pack(side="left", padx=(0, 4))
+            button = tk.Button(navigation, text=label, command=lambda name=key: self._show_view(name),
+                               bg=PANEL_ALT, fg=MUTED, relief="flat", padx=15, pady=4,
+                               activebackground=PANEL, activeforeground=TEXT,
+                               cursor="hand2")
+            button.pack(side="left", padx=1)
             self.view_buttons[key] = button
         self.mode_var = tk.StringVar(value="提醒自动运行")
         tk.Label(top, textvariable=self.mode_var, bg=BG, fg=ACCENT,
                  font=("Microsoft YaHei UI", 9)).pack(side="left", padx=(12, 0))
         self.conn_var = tk.StringVar(value="连接中")
-        tk.Label(top, textvariable=self.conn_var, bg=PANEL_ALT, fg=MUTED,
+        tk.Label(top, textvariable=self.conn_var, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), padx=10, pady=4).pack(side="right")
 
         if not self.demo_mode:
-            devices = tk.Frame(page, bg=BG)
+            devices = tk.Frame(page, bg=PANEL, padx=12, pady=7)
             devices.pack(fill="x", padx=18, pady=(0, 8))
             self._label(devices, "设备", 10, MUTED).pack(side="left", padx=(0, 10))
             self.port_var = tk.StringVar()
@@ -171,18 +194,31 @@ class App(tk.Tk):
         inner.pack(fill="both", expand=True)
         display = tk.Frame(inner, bg=PANEL)
         display.pack(expand=True)
-        self.water_canvas = tk.Canvas(display, bg=PANEL, width=210, height=310,
-                                      highlightthickness=0)
-        self.water_canvas.pack(side="left", padx=(0, 12))
+        self.water_view = WaterLevelView(display, surface=PANEL,
+                                         outline="#78AAB9", water=WATER,
+                                         highlight="#C9EFF8", text=MUTED)
+        self.water_view.pack(side="left", padx=(0, 12))
         numbers = tk.Frame(display, bg=PANEL)
-        numbers.pack(side="left", anchor="n", pady=(24, 0))
+        numbers.pack(side="left", anchor="n", pady=(29, 0))
+        self.water_status_var = tk.StringVar(value="等待杯垫")
+        tk.Label(numbers, textvariable=self.water_status_var, bg=PANEL, fg=ACCENT,
+                 font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
         self.water_var = tk.StringVar(value="-- ml")
         tk.Label(numbers, textvariable=self.water_var, bg=PANEL, fg=TEXT,
-                 font=("Consolas", 30, "bold")).pack(anchor="w")
+                 font=("Segoe UI Variable Display", 30, "bold")).pack(anchor="w", pady=(8, 2))
+        self.water_meta_var = tk.StringVar(value="")
+        tk.Label(numbers, textvariable=self.water_meta_var, bg=PANEL, fg=WATER,
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
         self.water_note = tk.StringVar(value="等待杯垫数据")
         tk.Label(numbers, textvariable=self.water_note, bg=PANEL, fg=MUTED,
-                 font=("Microsoft YaHei UI", 9), wraplength=165,
-                 justify="left").pack(anchor="w", pady=(7, 0))
+                 font=("Microsoft YaHei UI", 9), wraplength=220,
+                 justify="left").pack(anchor="w", pady=(12, 0))
+        self.water_action = tk.Button(numbers, text="管理杯子标定 →",
+                                       command=lambda: self._show_view("settings"),
+                                       bg=PANEL, fg=ACCENT, activebackground=PANEL,
+                                       activeforeground=TEXT, relief="flat",
+                                       font=("Microsoft YaHei UI", 9), padx=0, pady=0)
+        self.water_action.pack(anchor="w", pady=(14, 0))
         if self.demo_mode:
             tk.Button(numbers, text="模拟喝水 150 ml", command=lambda: self.feed.simulate_drink(150),
                       bg=PANEL_ALT, fg=TEXT, relief="flat", padx=8, pady=5).pack(anchor="w", pady=12)
@@ -197,13 +233,17 @@ class App(tk.Tk):
         self.today_var = tk.StringVar(value="0 ml")
         self._label(today_body, "已确认饮水", 10, MUTED).pack(anchor="w")
         tk.Label(today_body, textvariable=self.today_var, bg=PANEL, fg=ACCENT,
-                 font=("Consolas", 28, "bold")).pack(anchor="w", pady=(6, 8))
+                 font=("Segoe UI Variable Display", 28, "bold")).pack(anchor="w", pady=(6, 8))
         self.progress_canvas = tk.Canvas(today_body, height=12, bg=PANEL,
                                          highlightthickness=0)
         self.progress_canvas.pack(fill="x", pady=(4, 8))
         self.goal_var = tk.StringVar(value="")
         tk.Label(today_body, textvariable=self.goal_var, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+        self.goal_remaining_var = tk.StringVar(value="")
+        tk.Label(today_body, textvariable=self.goal_remaining_var, bg=PANEL,
+                 fg=ACCENT, font=("Microsoft YaHei UI", 10)).pack(
+                     anchor="w", pady=(16, 0))
 
         schedule = self._panel(right, "提醒计划")
         schedule.grid(row=1, column=0, sticky="nsew")
@@ -212,8 +252,10 @@ class App(tk.Tk):
         self.next_var = tk.StringVar(value="等待设备")
         tk.Label(schedule_body, textvariable=self.next_var, bg=PANEL, fg=ALERT,
                  font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
-        self._label(schedule_body, "仅在工作时段内开始提醒；可饮水完成或关闭本次提醒。",
-                    9, MUTED, wraplength=260, justify="left").pack(anchor="w", pady=(8, 0))
+        self.next_detail_var = tk.StringVar(value="")
+        tk.Label(schedule_body, textvariable=self.next_detail_var, bg=PANEL,
+                 fg=MUTED, font=("Microsoft YaHei UI", 9),
+                 wraplength=260, justify="left").pack(anchor="w", pady=(9, 0))
 
         settings_view = self.views["settings"]
         settings_view.columnconfigure(0, weight=1618, uniform="settings")
@@ -319,12 +361,16 @@ class App(tk.Tk):
                                 ("删除选中", self._delete_selected),
                                 ("清空今日", lambda: self._clear_records("today")),
                                 ("清空全部", lambda: self._clear_records("all"))):
-            tk.Button(actions, text=label, command=callback, bg=PANEL_ALT, fg=TEXT,
+            tk.Button(actions, text=label, command=callback, bg=PANEL_ALT,
+                      fg=DANGER if label != "导出 CSV" else TEXT,
                       relief="flat", padx=12, pady=5).pack(side="left", padx=(0, 8))
         style = ttk.Style(self)
         style.configure("Coaster.Treeview", background=PANEL, fieldbackground=PANEL,
                         foreground=TEXT, rowheight=26)
-        style.configure("Coaster.Treeview.Heading", foreground=BG)
+        style.configure("Coaster.Treeview.Heading", foreground=TEXT,
+                        background=PANEL_ALT)
+        style.map("Coaster.Treeview", background=[("selected", "#D9F0F5")],
+                  foreground=[("selected", TEXT)])
         self.records_tree = ttk.Treeview(recent_panel, columns=("time", "amount", "kind"),
                                          show="headings", selectmode="extended",
                                          style="Coaster.Treeview", height=10)
@@ -333,6 +379,10 @@ class App(tk.Tk):
             self.records_tree.heading(key, text=title)
             self.records_tree.column(key, width=width, anchor="w")
         self.records_tree.pack(fill="both", expand=True)
+        self.records_empty_var = tk.StringVar(value="")
+        self.records_empty_label = tk.Label(self.records_tree, textvariable=self.records_empty_var,
+                                             bg=PANEL, fg=MUTED,
+                                             font=("Microsoft YaHei UI", 10))
         self.records_status = tk.StringVar(value="可导出备份，再删除选中的记录或清空统计。")
         tk.Label(recent_panel, textvariable=self.records_status, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9), anchor="w").pack(fill="x", pady=(7, 0))
@@ -357,8 +407,8 @@ class App(tk.Tk):
             view.pack_forget()
         self.views[name].pack(fill="both", expand=True)
         for key, button in self.view_buttons.items():
-            button.configure(bg=ACCENT if key == name else BG,
-                             fg=BG if key == name else MUTED)
+            button.configure(bg=PANEL if key == name else PANEL_ALT,
+                             fg=TEXT if key == name else MUTED)
         if name == "records":
             self._refresh_records()
 
@@ -370,6 +420,11 @@ class App(tk.Tk):
             self.records_tree.insert("", "end", iid=str(id_), values=(
                 datetime.fromisoformat(at).strftime("%Y-%m-%d %H:%M"),
                 f"{ml:.0f} ml", "估算" if estimated else "称重确认"))
+        if rows:
+            self.records_empty_label.place_forget()
+        else:
+            self.records_empty_var.set("还没有饮水记录。喝水后放回杯垫，记录会出现在这里。")
+            self.records_empty_label.place(relx=0.5, rely=0.5, anchor="center")
         self.records_page_label.set(f"第 {self.records_page + 1} 页")
         self.records_dirty = False
 
@@ -747,64 +802,81 @@ class App(tk.Tk):
         self.full_var.set(f"满杯重：{self.core.settings.cup_full_g:.1f} g · 容量 {self.core.settings.calibrated_capacity_ml:.0f} ml"
                           if self.core.settings.cup_full_g is not None else "尚未记录满杯重：仅按净重量差统计")
         water = self.core.water_ml(self.weight_g, self.device_state) if connected else None
-        if water is not None:
+        level = self.core.calibrated_level(self.weight_g, self.device_state) if connected else None
+        placeholder = "等待杯子"
+        if level is not None:
             self.water_var.set(f"{water:.0f} ml")
-            capacity = self.core.settings.calibrated_capacity_ml or self.core.settings.cup_capacity_ml
+            capacity = self.core.settings.calibrated_capacity_ml
+            self.water_status_var.set("实时水位 · 杯子稳定")
+            self.water_meta_var.set(f"{level:.0%} · 满杯约 {capacity:.0f} ml")
             if (self.core.settings.cup_full_g is not None and self.weight_g is not None
                     and self.weight_g > self.core.settings.cup_full_g + 4):
                 self.water_note.set("当前重量超过满杯标定，请检查杯子或重新标定。")
             else:
-                self.water_note.set(f"杯中估算水量 · 参考容量 {capacity:.0f} ml")
+                self.water_note.set("水位随稳定称重变化；约按 1 g ≈ 1 ml 估算。")
+        elif water is not None:
+            self.water_var.set(f"{water:.0f} ml")
+            self.water_status_var.set("已记录空杯")
+            self.water_meta_var.set("水位尚未启用")
+            self.water_note.set("记录满杯重量后，才能显示有依据的水位比例。")
+            placeholder = "待满杯标定"
         elif connected and self.device_state == "stable" and self.weight_g is not None:
             self.water_var.set(f"{self.weight_g:.1f} g")
-            self.water_note.set("杯+水总重。请将空杯放上并记录空杯重，之后才能显示水量。")
+            self.water_status_var.set("已检测到杯子")
+            self.water_meta_var.set("当前为杯和水的总重")
+            self.water_note.set("请将空杯放上并记录空杯重，之后才能显示水量。")
+            placeholder = "已放杯"
         elif not connected:
             self.water_var.set("-- ml")
+            self.water_status_var.set("等待设备")
+            self.water_meta_var.set("连接杯垫后显示")
             self.water_note.set("等待杯垫连接")
+            placeholder = "等待设备"
         elif self.device_state == "no_cup":
             self.water_var.set("-- ml")
+            self.water_status_var.set("杯子未放置")
+            self.water_meta_var.set("把杯子放回杯垫")
             self.water_note.set("杯垫上暂未检测到杯子")
+            placeholder = "未放杯"
         else:
             self.water_var.set("-- ml")
+            self.water_status_var.set("正在称重")
+            self.water_meta_var.set("稍等片刻")
             self.water_note.set("正在等待杯子重量稳定")
-        self._draw_water(water, connected and self.device_state == "stable")
+            placeholder = "稳定中"
+        self.water_action.configure(text=("管理杯子标定 →" if self.core.settings.cup_full_g is not None
+                                          else "记录满杯重量 →" if self.core.settings.cup_tare_g is not None
+                                          else "记录空杯重量 →"))
+        self.water_view.set_reading(level, placeholder)
 
         confirmed, estimated = self.store.today_totals(now)
         self.today_var.set(f"{confirmed:.0f} ml")
         self.goal_var.set(f"每日目标 {self.core.settings.daily_goal_ml} ml · 达成 {confirmed / self.core.settings.daily_goal_ml:.0%}"
                           + (f" · 另有估算 {estimated:.0f} ml" if estimated else ""))
+        remaining_goal = max(0, self.core.settings.daily_goal_ml - confirmed)
+        self.goal_remaining_var.set("今天的目标已完成" if remaining_goal == 0
+                                    else f"距离目标还差 {remaining_goal:.0f} ml")
         self._draw_progress(min(1.0, confirmed / self.core.settings.daily_goal_ml))
         if self.core.alert_active and not connected:
             self.next_var.set("设备离线 · 提醒待完成")
+            self.next_detail_var.set("杯垫恢复连接后，继续显示这次提醒。")
         elif self.core.alert_active:
             remaining = max(0, self.core.settings.sip_target_ml - self.core.alert_progress_ml)
             self.next_var.set(f"提醒中 · 还需 {remaining:.0f} ml")
+            self.next_detail_var.set("喝足后自动结束，也可以选择稍后提醒。")
         elif not connected:
             self.next_var.set("等待杯垫连接")
+            self.next_detail_var.set("连接后会按工作时间开始提醒。")
         else:
             due = self.core.due_at(now)
             self.next_var.set(f"下次提醒 {due:%H:%M}" if due else "工作时段外")
+            if due is not None:
+                minutes = max(0, math.ceil((due - now).total_seconds() / 60))
+                self.next_detail_var.set(f"约 {minutes} 分钟后 · 达到时间会显示提醒")
+            else:
+                self.next_detail_var.set("下一工作时段会自动恢复提醒。")
         if self.active_view == "records" and self.records_dirty:
             self._refresh_records()
-
-    def _draw_water(self, water: float | None, cup_present: bool) -> None:
-        canvas = self.water_canvas
-        canvas.delete("all")
-        canvas.create_rectangle(34, 20, 157, 270, outline=WATER, width=4)
-        canvas.create_line(30, 19, 161, 19, fill=WATER, width=5)
-        canvas.create_arc(145, 78, 205, 210, start=270, extent=180,
-                          style="arc", outline=WATER, width=4)
-        if water is not None:
-            capacity = self.core.settings.calibrated_capacity_ml or self.core.settings.cup_capacity_ml
-            ratio = min(1.0, water / capacity)
-            top = 266 - ratio * 242
-            if ratio > 0:
-                canvas.create_rectangle(38, top, 153, 266, fill=WATER, outline="")
-        elif cup_present:
-            canvas.create_text(95, 145, text="已放杯", fill=ACCENT,
-                               font=("Microsoft YaHei UI", 12, "bold"))
-        canvas.create_text(95, 295, text="估算液位" if water is not None else "杯子状态", fill=MUTED,
-                           font=("Microsoft YaHei UI", 9))
 
     def _draw_progress(self, ratio: float) -> None:
         canvas = self.progress_canvas
@@ -843,7 +915,7 @@ class App(tk.Tk):
         if self.alert_window is None:
             self.alert_window = window
         self.alert_windows.append(window)
-        window.configure(bg=BG)
+        window.configure(bg=REMINDER_BG)
         window.overrideredirect(True)
         window.geometry(f"{bounds[2]}x{bounds[3]}+0+0")
         window.attributes("-topmost", True)
@@ -851,7 +923,7 @@ class App(tk.Tk):
         window.protocol("WM_DELETE_WINDOW", self._dismiss_alert)
         window.bind("<Escape>", self._dismiss_alert)
         window.bind("<Alt-F4>", self._dismiss_alert)
-        body_bg = BG
+        body_bg = REMINDER_BG
         if picture is not None:
             try:
                 rendered = render_picture(picture, bounds[2:],
@@ -860,20 +932,23 @@ class App(tk.Tk):
                 self.alert_images.append(photo)
                 tk.Label(window, image=photo, borderwidth=0).place(
                     x=0, y=0, relwidth=1, relheight=1)
-                body_bg = PANEL
+                body_bg = REMINDER_PANEL
             except (ValueError, OSError, MemoryError, tk.TclError) as exc:
                 self.image_status.set(f"背景显示失败，已使用默认背景：{exc}")
-        body = tk.Frame(window, bg=body_bg, padx=36 if body_bg == PANEL else 0,
-                        pady=30 if body_bg == PANEL else 0)
+        body = tk.Frame(window, bg=body_bg,
+                        padx=36 if body_bg == REMINDER_PANEL else 0,
+                        pady=30 if body_bg == REMINDER_PANEL else 0)
         body.place(relx=0.5, rely=0.5, anchor="center")
-        self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
-        tk.Label(body, textvariable=self.alert_text, bg=body_bg, fg=ACCENT,
+        self._label(body, "该喝水了", 48, REMINDER_TEXT, True).pack(pady=(0, 20))
+        tk.Label(body, textvariable=self.alert_text, bg=body_bg, fg=REMINDER_ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
-                    15, MUTED).pack()
+                    15, REMINDER_MUTED).pack()
         if self.demo_mode:
             tk.Button(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
-                      bg=ACCENT, fg=BG, relief="flat", padx=26, pady=10).pack(pady=25)
+                      bg=REMINDER_ACCENT, fg=REMINDER_BG, relief="flat", padx=26, pady=10,
+                      activebackground="#A9EBDD", activeforeground=REMINDER_BG,
+                      cursor="hand2", highlightcolor=REMINDER_ACCENT).pack(pady=25)
         snooze_seconds = int(self.core.snooze_delay().total_seconds())
         if snooze_seconds >= 60:
             minutes, seconds = divmod(snooze_seconds, 60)
@@ -881,15 +956,18 @@ class App(tk.Tk):
         else:
             snooze_text = f"{snooze_seconds} 秒"
         dismiss_button = tk.Button(body, text=f"稍后提醒（{snooze_text}）",
-                                   command=self._dismiss_alert, bg=PANEL_ALT,
-                                   fg=TEXT, relief="flat", padx=26, pady=10)
+                                   command=self._dismiss_alert, bg="#284550",
+                                   fg=REMINDER_TEXT, relief="flat", padx=26, pady=10,
+                                   activebackground="#355B68",
+                                   activeforeground=REMINDER_TEXT, cursor="hand2",
+                                   highlightcolor=REMINDER_ACCENT)
         if window is self.alert_window:
             self.dismiss_button = dismiss_button
         dismiss_button.pack(pady=(25, 10))
         self._label(body, "关闭后不会记录饮水；稍后会再次提醒。",
-                    11, MUTED).pack()
+                    11, REMINDER_MUTED).pack()
         self._label(body, "Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
-                    10, MUTED).pack(pady=(28, 0))
+                    10, REMINDER_MUTED).pack(pady=(28, 0))
         window.update_idletasks()
         window.deiconify()
         position_window(window, bounds)

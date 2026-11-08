@@ -172,3 +172,11 @@ class HydrationCore:
         if not math.isfinite(weight_g):
             return None
         return max(0.0, weight_g - self.settings.cup_tare_g)
+
+    def calibrated_level(self, weight_g: float | None, state: str) -> float | None:
+        """Return a trustworthy 0–1 fill fraction only with both cup weights."""
+        capacity = self.settings.calibrated_capacity_ml
+        water = self.water_ml(weight_g, state)
+        if capacity is None or capacity <= 0 or water is None:
+            return None
+        return min(1.0, water / capacity)

@@ -35,6 +35,15 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(core.water_ml(80, "stable"), 0)
         self.assertIsNone(core.water_ml(350, "no_cup"))
 
+    def test_dynamic_level_requires_empty_and_full_calibration(self):
+        core = HydrationCore(Settings(cup_tare_g=120))
+        self.assertIsNone(core.calibrated_level(370, "stable"))
+        core.settings.cup_full_g = 620
+        self.assertEqual(core.calibrated_level(370, "stable"), 0.5)
+        self.assertEqual(core.calibrated_level(80, "stable"), 0.0)
+        self.assertEqual(core.calibrated_level(700, "stable"), 1.0)
+        self.assertIsNone(core.calibrated_level(370, "no_cup"))
+
     def test_full_cup_calibration_requires_empty_cup_and_sets_capacity(self):
         with self.assertRaises(ValueError):
             Settings(cup_full_g=620).validate()
