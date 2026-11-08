@@ -24,6 +24,9 @@ class Settings:
     cup_capacity_ml: int = 500
     cup_tare_g: float | None = None
     cup_full_g: float | None = None
+    reminder_image_path: str = ""
+    reminder_image_name: str = ""
+    reminder_image_mode: str = "smart"
 
     def validate(self) -> None:
         if parse_clock(self.work_start) == parse_clock(self.work_end):
@@ -47,6 +50,12 @@ class Settings:
                     or not math.isfinite(self.cup_full_g)
                     or not self.cup_tare_g + 50 <= self.cup_full_g <= 8000):
                 raise ValueError("满杯重须比空杯重多至少 50 g，且不超过 8000 g")
+        if not isinstance(self.reminder_image_path, str) or len(self.reminder_image_path) > 2048:
+            raise ValueError("提醒背景路径无效")
+        if not isinstance(self.reminder_image_name, str) or len(self.reminder_image_name) > 150:
+            raise ValueError("提醒背景名称无效")
+        if self.reminder_image_mode not in ("smart", "cover", "contain"):
+            raise ValueError("提醒背景适配方式无效")
 
     @property
     def calibrated_capacity_ml(self) -> float | None:

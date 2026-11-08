@@ -24,3 +24,17 @@ def enable_native_dpi() -> None:
         ctypes.windll.user32.SetProcessDPIAware()
     except (AttributeError, OSError):
         pass
+
+
+def set_windows_app_id() -> None:
+    """Give the desktop app its own taskbar identity instead of Python's."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        shell32 = ctypes.windll.shell32
+        shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
+        shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
+        shell32.SetCurrentProcessExplicitAppUserModelID("SmartCoaster.Desktop")
+    except (AttributeError, OSError):
+        pass

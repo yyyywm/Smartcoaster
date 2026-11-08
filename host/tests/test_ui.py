@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox
 import unittest
 from unittest.mock import patch
+from PIL import Image
 
 from coaster_app.displays import monitor_bounds
 from coaster_app.model import Settings
@@ -33,6 +34,49 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_selected_background_is_saved_and_rendered_after_source_is_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "photo.png"
+            Image.new("RGB", (64, 32), "#5FB9DC").save(source)
+            store = Store(root / "ui.db")
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                app._show_view("settings")
+                with patch("coaster_app.ui.filedialog.askopenfilename",
+                           return_value=str(source)):
+                    app._choose_reminder_image()
+                app.image_mode_var.set("完整显示")
+                app._save_settings()
+                saved = app.core.settings.reminder_image_path
+                self.assertTrue(Path(saved).exists())
+                self.assertEqual(store.load_settings().reminder_image_name, "photo.png")
+                self.assertEqual(store.load_settings().reminder_image_mode, "contain")
+                source.unlink()
+                app._show_view("overview")
+                app.core.alert_started = datetime.now().astimezone()
+                app.connection = True
+                app.last_frame_at = datetime.now().astimezone()
+                with patch("coaster_app.ui.monitor_bounds",
+                           return_value=[(0, 0, 800, 600), (800, -100, 1000, 700)]):
+                    app._tick()
+                self.assertEqual(len(app.alert_images), 2)
+                self.assertEqual(app.alert_images[0].width(), 800)
+                self.assertEqual(app.alert_images[1].width(), 1000)
+                app._dismiss_alert()
+                self.assertEqual(app.alert_images, [])
+                Path(saved).unlink()
+                app.core.alert_started = datetime.now().astimezone()
+                with patch("coaster_app.ui.monitor_bounds",
+                           return_value=[(0, 0, 800, 600)]):
+                    app._tick()
+                self.assertIsNotNone(app.alert_window)
+                self.assertEqual(app.alert_images, [])
+                self.assertIn("背景加载失败", app.image_status.get())
+            finally:
+                app._shutdown()
+
     def test_reminder_covers_every_monitor_and_dismisses_together(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")

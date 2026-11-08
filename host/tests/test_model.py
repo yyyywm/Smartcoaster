@@ -45,6 +45,14 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.calibrated_capacity_ml, 500)
         self.assertEqual(Settings.from_dict(settings.to_dict()).cup_full_g, 620)
 
+    def test_reminder_image_settings_round_trip_and_validate_mode(self):
+        settings = Settings(reminder_image_path="C:/image.png",
+                            reminder_image_name="image.png", reminder_image_mode="contain")
+        self.assertEqual(Settings.from_dict(settings.to_dict()).reminder_image_mode,
+                         "contain")
+        with self.assertRaises(ValueError):
+            Settings(reminder_image_mode="stretch").validate()
+
 
 class ReminderTests(unittest.TestCase):
     def test_dismiss_alert_snoozes_without_claiming_a_drink(self):

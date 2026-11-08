@@ -7,15 +7,18 @@ import math
 import queue
 import time
 
-from .dpi import enable_native_dpi
+from .dpi import enable_native_dpi, set_windows_app_id
 
 enable_native_dpi()
+set_windows_app_id()
 
 import tkinter as tk
 from tkinter import filedialog, ttk
+from PIL import ImageTk
 
 from .displays import monitor_bounds, position_window
 from .model import HydrationCore, Settings
+from .reminder_image import import_picture, load_picture, render_picture
 from .storage import Store
 from .transport import DemoFeed, SerialFeed, available_ports
 
@@ -32,6 +35,7 @@ RECORDS_PAGE_SIZE = 10
 GOLDEN_RATIO = (1 + math.sqrt(5)) / 2
 WINDOW_WIDTH = 1080
 MIN_WINDOW_WIDTH = 960
+IMAGE_MODES = {"智能适配": "smart", "铺满（会裁切）": "cover", "完整显示": "contain"}
 
 
 class App(tk.Tk):
@@ -56,6 +60,7 @@ class App(tk.Tk):
         self.alert_window: tk.Toplevel | None = None
         self.alert_windows: list[tk.Toplevel] = []
         self.alert_bounds: list[tuple[int, int, int, int]] = []
+        self.alert_images: list[ImageTk.PhotoImage] = []
         self._closing = False
         self._tick_jobs: list[str] = []
         self.tare_pending: tuple[float, float] | None = None
@@ -78,6 +83,7 @@ class App(tk.Tk):
         self.minsize(min(MIN_WINDOW_WIDTH, width),
                      min(round(MIN_WINDOW_WIDTH / GOLDEN_RATIO), height))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._set_app_icon()
         self.bind_all("<Control-Shift-Q>", self._dismiss_alert)
         self._build()
         self.feed.start()
@@ -85,6 +91,17 @@ class App(tk.Tk):
 
     def _schedule_tick(self, delay_ms: int) -> None:
         self._tick_jobs.append(self.after(delay_ms, self._tick))
+
+    def _set_app_icon(self) -> None:
+        assets = Path(__file__).resolve().parent.parent / "assets"
+        try:
+            self.iconbitmap(str(assets / "coaster.ico"))
+        except tk.TclError:
+            try:
+                self._app_icon = tk.PhotoImage(file=str(assets / "coaster.png"))
+                self.iconphoto(True, self._app_icon)
+            except tk.TclError:
+                pass
 
     def _label(self, parent, text: str, size: int = 11, color: str = TEXT,
                bold: bool = False, **kwargs) -> tk.Label:
@@ -232,6 +249,35 @@ class App(tk.Tk):
         tk.Button(settings_panel, text="保存设置", command=self._save_settings,
                   bg=ACCENT, fg=BG, activebackground=ACCENT, relief="flat",
                   font=("Microsoft YaHei UI", 10, "bold"), pady=5).pack(fill="x", pady=(8, 6))
+        self._label(settings_panel, "提醒背景", 10, TEXT, True).pack(anchor="w", pady=(8, 3))
+        self.image_name_var = tk.StringVar(value=settings.reminder_image_name or "默认纯色背景")
+        self.image_path_var = tk.StringVar(value=settings.reminder_image_path)
+        tk.Label(settings_panel, textvariable=self.image_name_var, bg=PANEL, fg=MUTED,
+                 font=("Microsoft YaHei UI", 9), anchor="w").pack(fill="x")
+        image_actions = tk.Frame(settings_panel, bg=PANEL)
+        image_actions.pack(fill="x", pady=(5, 4))
+        tk.Button(image_actions, text="选择图片", command=self._choose_reminder_image,
+                  bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="left", padx=(0, 6))
+        tk.Button(image_actions, text="恢复默认", command=self._clear_reminder_image,
+                  bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="left", padx=(0, 8))
+        self.image_mode_var = tk.StringVar(value=next(
+            (label for label, mode in IMAGE_MODES.items()
+             if mode == settings.reminder_image_mode), "智能适配"))
+        self.image_mode_menu = tk.Menubutton(
+            image_actions, textvariable=self.image_mode_var, bg=PANEL_ALT, fg=TEXT,
+            activebackground=PANEL_ALT, activeforeground=TEXT, relief="flat",
+            indicatoron=True, padx=10)
+        mode_menu = tk.Menu(self.image_mode_menu, tearoff=False, bg=PANEL_ALT,
+                            fg=TEXT, activebackground=ACCENT, activeforeground=BG)
+        for label in IMAGE_MODES:
+            mode_menu.add_radiobutton(label=label, value=label,
+                                      variable=self.image_mode_var)
+        self.image_mode_menu.configure(menu=mode_menu)
+        self.image_mode_menu.pack(side="left", fill="x", expand=True)
+        self.image_status = tk.StringVar(value="小图智能居中，大图按比例铺满；选择后点保存设置。")
+        tk.Label(settings_panel, textvariable=self.image_status, bg=PANEL, fg=MUTED,
+                 font=("Microsoft YaHei UI", 9), anchor="w",
+                 wraplength=520, justify="left").pack(fill="x")
         self._label(calibration_panel, "杯垫空着却显示有杯？移走所有物品后归零；杯子标定需重做。",
                     9, MUTED, wraplength=340, justify="left").pack(anchor="w", pady=(0, 8))
         self.zero_button = tk.Button(calibration_panel, text="杯垫空载归零",
@@ -392,6 +438,10 @@ class App(tk.Tk):
                 cup_capacity_ml=int(self.entries["cup_capacity_ml"].get()),
                 cup_tare_g=old.cup_tare_g,
                 cup_full_g=old.cup_full_g,
+                reminder_image_path=self.image_path_var.get().strip(),
+                reminder_image_name=(self.image_name_var.get().strip()
+                                     if self.image_path_var.get().strip() else ""),
+                reminder_image_mode=IMAGE_MODES.get(self.image_mode_var.get(), "smart"),
             )
             settings.validate()
         except ValueError as exc:
@@ -401,6 +451,34 @@ class App(tk.Tk):
         self.core.settings = settings
         self._render()
         self._set_action_status("已保存设置")
+        self.image_status.set("提醒背景已保存。" if settings.reminder_image_path
+                              else "已使用默认纯色背景。")
+
+    def _choose_reminder_image(self) -> None:
+        selected = filedialog.askopenfilename(
+            parent=self, title="选择提醒背景图片",
+            filetypes=[("图片", "*.png *.jpg *.jpeg *.webp *.bmp")])
+        if not selected:
+            return
+        try:
+            managed, size = import_picture(Path(selected), self.store.path.parent)
+        except (OSError, ValueError) as exc:
+            self.image_status.set(f"图片不可用：{exc}")
+            return
+        self.image_path_var.set(str(managed))
+        self.image_name_var.set(Path(selected).name[:150])
+        screens = monitor_bounds() or [(0, 0, self.winfo_screenwidth(),
+                                        self.winfo_screenheight())]
+        small = any(size[0] < width or size[1] < height
+                    for _x, _y, width, height in screens)
+        advice = "小于部分屏幕，建议用智能适配。" if small else "可按比例铺满屏幕。"
+        self.image_status.set(
+            f"已导入 {size[0]} × {size[1]}；{advice}保存设置后生效。")
+
+    def _clear_reminder_image(self) -> None:
+        self.image_path_var.set("")
+        self.image_name_var.set("默认纯色背景")
+        self.image_status.set("将恢复默认背景；点击保存设置后生效。")
 
     def _set_action_status(self, message: str, error: bool = False) -> None:
         self.action_status.set(message)
@@ -746,13 +824,20 @@ class App(tk.Tk):
             self._hide_alert()
         self.alert_text = tk.StringVar()
         self.alert_bounds = bounds
+        picture = None
+        if self.core.settings.reminder_image_path:
+            try:
+                picture = load_picture(Path(self.core.settings.reminder_image_path))
+            except ValueError as exc:
+                self.image_status.set(f"背景加载失败，已使用默认背景：{exc}")
         for rect in bounds:
-            self._create_alert_window(rect)
+            self._create_alert_window(rect, picture)
         if self.alert_window is not None:
             self.alert_window.focus_force()
         self._update_alert()
 
-    def _create_alert_window(self, bounds: tuple[int, int, int, int]) -> None:
+    def _create_alert_window(self, bounds: tuple[int, int, int, int],
+                             picture=None) -> None:
         window = tk.Toplevel(self)
         window.withdraw()
         if self.alert_window is None:
@@ -766,10 +851,23 @@ class App(tk.Tk):
         window.protocol("WM_DELETE_WINDOW", self._dismiss_alert)
         window.bind("<Escape>", self._dismiss_alert)
         window.bind("<Alt-F4>", self._dismiss_alert)
-        body = tk.Frame(window, bg=BG)
+        body_bg = BG
+        if picture is not None:
+            try:
+                rendered = render_picture(picture, bounds[2:],
+                                          self.core.settings.reminder_image_mode)
+                photo = ImageTk.PhotoImage(rendered, master=window)
+                self.alert_images.append(photo)
+                tk.Label(window, image=photo, borderwidth=0).place(
+                    x=0, y=0, relwidth=1, relheight=1)
+                body_bg = PANEL
+            except (ValueError, OSError, MemoryError, tk.TclError) as exc:
+                self.image_status.set(f"背景显示失败，已使用默认背景：{exc}")
+        body = tk.Frame(window, bg=body_bg, padx=36 if body_bg == PANEL else 0,
+                        pady=30 if body_bg == PANEL else 0)
         body.place(relx=0.5, rely=0.5, anchor="center")
         self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
-        tk.Label(body, textvariable=self.alert_text, bg=BG, fg=ACCENT,
+        tk.Label(body, textvariable=self.alert_text, bg=body_bg, fg=ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
                     15, MUTED).pack()
@@ -808,6 +906,7 @@ class App(tk.Tk):
             window.destroy()
         self.alert_windows.clear()
         self.alert_bounds.clear()
+        self.alert_images.clear()
         self.alert_window = None
 
     def _on_close(self) -> None:
