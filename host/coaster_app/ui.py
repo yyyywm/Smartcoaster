@@ -14,6 +14,7 @@ enable_native_dpi()
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from .displays import monitor_bounds, position_window
 from .model import HydrationCore, Settings
 from .storage import Store
 from .transport import DemoFeed, SerialFeed, available_ports
@@ -53,6 +54,8 @@ class App(tk.Tk):
         self.calibration_sync_error = False
         self.last_frame_at: datetime | None = None
         self.alert_window: tk.Toplevel | None = None
+        self.alert_windows: list[tk.Toplevel] = []
+        self.alert_bounds: list[tuple[int, int, int, int]] = []
         self._closing = False
         self._tick_jobs: list[str] = []
         self.tare_pending: tuple[float, float] | None = None
@@ -734,21 +737,38 @@ class App(tk.Tk):
             canvas.create_rectangle(0, 2, width * ratio, 10, fill=ACCENT, outline="")
 
     def _show_alert(self) -> None:
+        bounds = monitor_bounds() or [(0, 0, self.winfo_screenwidth(),
+                                       self.winfo_screenheight())]
         if self.alert_window is not None:
-            self._update_alert()
-            return
+            if bounds == self.alert_bounds:
+                self._update_alert()
+                return
+            self._hide_alert()
+        self.alert_text = tk.StringVar()
+        self.alert_bounds = bounds
+        for rect in bounds:
+            self._create_alert_window(rect)
+        if self.alert_window is not None:
+            self.alert_window.focus_force()
+        self._update_alert()
+
+    def _create_alert_window(self, bounds: tuple[int, int, int, int]) -> None:
         window = tk.Toplevel(self)
-        self.alert_window = window
+        window.withdraw()
+        if self.alert_window is None:
+            self.alert_window = window
+        self.alert_windows.append(window)
         window.configure(bg=BG)
-        window.attributes("-fullscreen", True)
+        window.overrideredirect(True)
+        window.geometry(f"{bounds[2]}x{bounds[3]}+0+0")
         window.attributes("-topmost", True)
+        window.attributes("-alpha", 0)
         window.protocol("WM_DELETE_WINDOW", self._dismiss_alert)
         window.bind("<Escape>", self._dismiss_alert)
         window.bind("<Alt-F4>", self._dismiss_alert)
         body = tk.Frame(window, bg=BG)
         body.place(relx=0.5, rely=0.5, anchor="center")
         self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
-        self.alert_text = tk.StringVar()
         tk.Label(body, textvariable=self.alert_text, bg=BG, fg=ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
         self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
@@ -762,17 +782,20 @@ class App(tk.Tk):
             snooze_text = f"{minutes} 分钟" if seconds == 0 else f"{minutes} 分 {seconds} 秒"
         else:
             snooze_text = f"{snooze_seconds} 秒"
-        self.dismiss_button = tk.Button(body, text=f"稍后提醒（{snooze_text}）",
-                                        command=self._dismiss_alert, bg=PANEL_ALT,
-                                        fg=TEXT, relief="flat", padx=26, pady=10)
-        self.dismiss_button.pack(pady=(25, 10))
+        dismiss_button = tk.Button(body, text=f"稍后提醒（{snooze_text}）",
+                                   command=self._dismiss_alert, bg=PANEL_ALT,
+                                   fg=TEXT, relief="flat", padx=26, pady=10)
+        if window is self.alert_window:
+            self.dismiss_button = dismiss_button
+        dismiss_button.pack(pady=(25, 10))
         self._label(body, "关闭后不会记录饮水；稍后会再次提醒。",
                     11, MUTED).pack()
         self._label(body, "Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
                     10, MUTED).pack(pady=(28, 0))
-        window.lift()
-        window.focus_force()
-        self._update_alert()
+        window.update_idletasks()
+        window.deiconify()
+        position_window(window, bounds)
+        window.attributes("-alpha", 1)
 
     def _update_alert(self) -> None:
         if self.alert_window is None:
@@ -781,9 +804,11 @@ class App(tk.Tk):
         self.alert_text.set(f"建议再喝 {remaining:.0f} ml")
 
     def _hide_alert(self) -> None:
-        if self.alert_window is not None:
-            self.alert_window.destroy()
-            self.alert_window = None
+        for window in self.alert_windows:
+            window.destroy()
+        self.alert_windows.clear()
+        self.alert_bounds.clear()
+        self.alert_window = None
 
     def _on_close(self) -> None:
         self._shutdown()

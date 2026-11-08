@@ -7,6 +7,7 @@ from tkinter import messagebox
 import unittest
 from unittest.mock import patch
 
+from coaster_app.displays import monitor_bounds
 from coaster_app.model import Settings
 from coaster_app.storage import Store
 from coaster_app.transport import DemoFeed
@@ -32,6 +33,34 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_reminder_covers_every_monitor_and_dismisses_together(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            now = datetime.now().astimezone()
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                app.update()
+                app.core.alert_started = now
+                app.connection = True
+                app.last_frame_at = now
+                monitors = [(0, 0, 800, 600), (800, -100, 800, 600)]
+                with patch("coaster_app.ui.monitor_bounds", return_value=monitors):
+                    app._tick()
+                self.assertEqual(len(app.alert_windows), 2)
+                app.update()
+                for window, (x, y, width, height) in zip(app.alert_windows, monitors):
+                    self.assertEqual((window.winfo_rootx(), window.winfo_rooty(),
+                                      window.winfo_width(), window.winfo_height()),
+                                     (x, y, width, height))
+                app.alert_windows[1].event_generate("<Escape>")
+                self.assertEqual(app.alert_windows, [])
+                self.assertIsNone(app.alert_window)
+                self.assertFalse(app.core.alert_active)
+                self.assertTrue(app.winfo_exists())
+            finally:
+                app._shutdown()
+
     def test_leaving_settings_does_not_skip_an_overdue_reminder(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
@@ -412,7 +441,13 @@ class ReminderWindowTests(unittest.TestCase):
                 app.core.alert_started = now
                 app._tick()
                 self.assertIsNotNone(app.alert_window)
-                self.assertTrue(app.alert_window.attributes("-fullscreen"))
+                self.assertTrue(app.alert_window.overrideredirect())
+                self.assertEqual(len(app.alert_windows), len(monitor_bounds()) or 1)
+                if monitor_bounds():
+                    app.update()
+                    for window, rect in zip(app.alert_windows, monitor_bounds()):
+                        self.assertEqual((window.winfo_rootx(), window.winfo_rooty(),
+                                          window.winfo_width(), window.winfo_height()), rect)
                 self.assertIn("5 分钟", app.dismiss_button.cget("text"))
                 callback = app.tk.call("wm", "protocol", app.alert_window._w,
                                        "WM_DELETE_WINDOW")
