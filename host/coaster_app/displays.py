@@ -56,11 +56,15 @@ def position_window(window, bounds: tuple[int, int, int, int]) -> None:
         from ctypes import wintypes
 
         user32 = ctypes.windll.user32
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
             ctypes.c_int, ctypes.c_int, wintypes.UINT]
         user32.SetWindowPos.restype = wintypes.BOOL
-        if user32.SetWindowPos(window.winfo_id(), None, x, y, width, height,
-                               0x0004 | 0x0010):  # NOZORDER | NOACTIVATE
+        # Tk's winfo_id() is its client child HWND; the visible toplevel is its ancestor.
+        outer = user32.GetAncestor(window.winfo_id(), 2)  # GA_ROOT
+        if outer and user32.SetWindowPos(outer, None, x, y, width, height,
+                                       0x0004 | 0x0010):  # NOZORDER | NOACTIVATE
             return
     window.geometry(f"{width}x{height}{x:+d}{y:+d}")

@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+import ctypes
 import queue
+import sys
 import tempfile
 import tkinter as tk
 from tkinter import messagebox
@@ -532,6 +534,9 @@ class ReminderWindowTests(unittest.TestCase):
     def test_reminder_can_be_dismissed_without_closing_app_or_recording_drink(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
+            picture = Path(directory) / "reminder.png"
+            Image.new("RGB", (320, 180), "#508CA4").save(picture)
+            store.save_settings(Settings(reminder_image_path=str(picture)))
             now = datetime.now().astimezone()
             messages = queue.Queue()
             try:
@@ -546,11 +551,23 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertIsNotNone(app.alert_window)
                 self.assertTrue(app.alert_window.overrideredirect())
                 self.assertEqual(len(app.alert_windows), len(monitor_bounds()) or 1)
+                self.assertEqual(len(app.alert_images), len(app.alert_windows))
                 if monitor_bounds():
                     app.update()
                     for window, rect in zip(app.alert_windows, monitor_bounds()):
                         self.assertEqual((window.winfo_rootx(), window.winfo_rooty(),
                                           window.winfo_width(), window.winfo_height()), rect)
+                        if sys.platform == "win32":
+                            from ctypes import wintypes
+                            user32 = ctypes.windll.user32
+                            user32.GetParent.argtypes = [wintypes.HWND]
+                            user32.GetParent.restype = wintypes.HWND
+                            wrapper = user32.GetParent(window.winfo_id())
+                            physical = wintypes.RECT()
+                            self.assertTrue(user32.GetWindowRect(wrapper, ctypes.byref(physical)))
+                            self.assertEqual((physical.left, physical.top,
+                                              physical.right - physical.left,
+                                              physical.bottom - physical.top), rect)
                 self.assertIn("5 分钟", app.dismiss_button.cget("text"))
                 callback = app.tk.call("wm", "protocol", app.alert_window._w,
                                        "WM_DELETE_WINDOW")
