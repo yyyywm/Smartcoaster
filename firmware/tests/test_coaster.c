@@ -849,6 +849,34 @@ static void test_calibrated_full_cup_counts_only_visible_net_loss(void)
     coaster_destroy(s.h);
 }
 
+static void test_drink_then_refill_before_return_has_no_confirmed_drink(void)
+{
+    TEST_CASE("拿杯喝完/喝一口后直接加满：只报净增加，不报饮水");
+    const float before_ml[] = {200.0f, 400.0f};
+    for (int i = 0; i < 2; i++) {
+        coaster_cfg_t c;
+        default_cfg(&c);
+        c.empty_cup_g = 120.0f;
+        c.full_cup_g = 620.0f;
+        sim_t s;
+        sim_new(&s, &c);
+        sim_idle(&s, 5);
+        feed_until(&s, 120.0f + before_ml[i], COASTER_STATE_STABLE, 60);
+        feed_until(&s, 0.0f, COASTER_STATE_NO_CUP, 20);
+        feed_until(&s, 620.0f, COASTER_STATE_STABLE, 60);
+        CHECK_INT(sim_count_of(&s, COASTER_EVT_DRINK), 0,
+                  "途中没有空杯/喝后重量，不能确认喝水");
+        CHECK_INT(sim_count_of(&s, COASTER_EVT_REFILL), 1,
+                  "放回满杯只记录净增加");
+        coaster_event_t *refill = sim_last_of(&s, COASTER_EVT_REFILL);
+        if (refill) {
+            CHECK_FLOAT(refill->refill_ml, 500.0f - before_ml[i], 1.5f,
+                        "净增加量应正确");
+        }
+        coaster_destroy(s.h);
+    }
+}
+
 static void test_calibrated_empty_only_and_out_of_range(void)
 {
     TEST_CASE("仅空杯标定：净减少记账，低于空杯重拒绝，续杯不猜饮水");
@@ -936,6 +964,7 @@ int main(void)
     test_state_names();
     test_set_baseline_relearn();
     test_calibrated_full_cup_counts_only_visible_net_loss();
+    test_drink_then_refill_before_return_has_no_confirmed_drink();
     test_calibrated_empty_only_and_out_of_range();
     test_full_cup_rejects_over_capacity_and_calibration_resets();
 

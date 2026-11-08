@@ -948,13 +948,19 @@ class App(tk.Tk):
         self._label(body, "该喝水了", 48, REMINDER_TEXT, True).pack(pady=(0, 20))
         tk.Label(body, textvariable=self.alert_text, bg=REMINDER_BG, fg=REMINDER_ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
-        self._label(body, "拿起杯子喝水，放回杯垫后会自动解除提醒。",
+        self._label(body, "拿起杯子喝水；放回后若确认达标，提醒会自动结束。",
                     15, REMINDER_MUTED).pack()
         if self.demo_mode:
             SoftButton(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                       bg=REMINDER_ACCENT, fg=REMINDER_BG, relief="flat", padx=26, pady=10,
                       activebackground="#A9EBDD", activeforeground=REMINDER_BG,
-                      cursor="hand2", highlightcolor=REMINDER_ACCENT).pack(pady=25)
+                      cursor="hand2", highlightcolor=REMINDER_ACCENT).pack(pady=(20, 0))
+        manual_button = SoftButton(body, text="已喝水 · 不计入统计",
+                                   command=self._acknowledge_unmeasured,
+                                   bg=REMINDER_ACCENT, fg=REMINDER_BG, padx=26, pady=10)
+        if window is self.alert_window:
+            self.manual_button = manual_button
+        manual_button.pack(pady=(22, 0))
         dismiss_button = SoftButton(body, text=f"稍后提醒（{self._snooze_text()}）",
                                    command=self._dismiss_alert, bg="#284550",
                                    fg=REMINDER_TEXT, relief="flat", padx=26, pady=10,
@@ -963,8 +969,8 @@ class App(tk.Tk):
                                    highlightcolor=REMINDER_ACCENT)
         if window is self.alert_window:
             self.dismiss_button = dismiss_button
-        dismiss_button.pack(pady=(25, 10))
-        self._label(body, "关闭后不会记录饮水；稍后会再次提醒。",
+        dismiss_button.pack(pady=(10, 10))
+        self._label(body, "手动完成不计水量；稍后提醒会再次响铃。",
                     11, REMINDER_MUTED).pack()
         self._label(body, "Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
                     10, REMINDER_MUTED).pack(pady=(28, 0))
@@ -984,7 +990,7 @@ class App(tk.Tk):
         width, height = rendered.size
         scale = min(1.0, width / 850, height / 650)
         panel_width = min(width - 32, round(650 * scale))
-        panel_height = min(height - 32, round((490 if self.demo_mode else 440) * scale))
+        panel_height = min(height - 32, round((550 if self.demo_mode else 490) * scale))
         left = (width - panel_width) // 2
         top = (height - panel_height) // 2
         panel = (left, top, left + panel_width, top + panel_height)
@@ -1010,21 +1016,28 @@ class App(tk.Tk):
         add_text("该喝水了", 32, 42, TEXT, True)
         text_item = add_text("", 135, 22, ACCENT)
         self.alert_text_items.append((canvas, text_item))
-        add_text("拿起杯子喝水，放回杯垫后会自动解除提醒。", 190, 14, TEXT)
+        add_text("拿起杯子喝水；放回后若确认达标，提醒会自动结束。", 190, 14, TEXT)
         if self.demo_mode:
             simulate = SoftButton(canvas, text="模拟喝水",
                                   command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                                   bg=ACCENT, fg="#FFFFFF", padx=26, pady=9)
             canvas.create_window(center, top + round(265 * scale), window=simulate)
-        dismiss_y = 325 if self.demo_mode else 265
+        manual_y = 325 if self.demo_mode else 265
+        manual = SoftButton(canvas, text="已喝水 · 不计入统计",
+                            command=self._acknowledge_unmeasured,
+                            bg=ACCENT, fg="#FFFFFF", padx=24, pady=9)
+        canvas.create_window(center, top + round(manual_y * scale), window=manual)
+        if window is self.alert_window:
+            self.manual_button = manual
+        dismiss_y = 385 if self.demo_mode else 325
         dismiss = SoftButton(canvas, text=f"稍后提醒（{self._snooze_text()}）",
-                             command=self._dismiss_alert, bg=ACCENT, fg="#FFFFFF",
+                             command=self._dismiss_alert, bg=PANEL_ALT, fg=TEXT,
                              padx=24, pady=9)
         canvas.create_window(center, top + round(dismiss_y * scale), window=dismiss)
         if window is self.alert_window:
             self.dismiss_button = dismiss
-        hint_y = 380 if self.demo_mode else 325
-        add_text("关闭后不会记录饮水；稍后会再次提醒。", hint_y, 11, MUTED)
+        hint_y = 440 if self.demo_mode else 380
+        add_text("手动完成不计水量；稍后提醒会再次响铃。", hint_y, 11, MUTED)
         add_text("Esc / Alt + F4 / Ctrl + Shift + Q 也可关闭提醒",
                  hint_y + 46, 10, MUTED)
 
@@ -1093,6 +1106,12 @@ class App(tk.Tk):
             self._hide_alert()
             self._render()
         return "break"
+
+    def _acknowledge_unmeasured(self) -> None:
+        if self.core.acknowledge_unmeasured_drink(datetime.now().astimezone()):
+            self._persist_runtime()
+            self._hide_alert()
+            self._render()
 
     def _shutdown(self) -> None:
         if self._closing:

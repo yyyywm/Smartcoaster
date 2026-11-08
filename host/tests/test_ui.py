@@ -79,6 +79,52 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
+    def test_refill_after_unobserved_drink_keeps_reminder_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                now = datetime.now().astimezone()
+                app.core.alert_started = now
+                app.connection = True
+                app.last_frame_at = now
+                app._tick()
+                self.assertIsNotNone(app.alert_window)
+                app._handle_frame({"event": "refill", "ml": 300,
+                                   "weight_g": 620}, now)
+                self.assertTrue(app.core.alert_active)
+                self.assertIsNotNone(app.alert_window)
+                self.assertEqual(app.core.alert_progress_ml, 0)
+                self.assertEqual(store.today_totals(now), (0, 0))
+            finally:
+                app._shutdown()
+
+    def test_manual_completion_after_refill_stops_alert_without_drink_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "ui.db")
+            messages = queue.Queue()
+            app = App(store, DemoFeed(messages), messages)
+            try:
+                now = datetime.now().astimezone()
+                app.core.alert_started = now
+                app.connection = True
+                app.last_frame_at = now
+                app._tick()
+                app._handle_frame({"event": "refill", "ml": 100,
+                                   "weight_g": 620}, now)
+                self.assertTrue(app.core.alert_active)
+                self.assertIn("不计入统计", app.manual_button.cget("text"))
+                app.manual_button.invoke()
+                self.assertFalse(app.core.alert_active)
+                self.assertIsNone(app.alert_window)
+                self.assertIsNone(app.core.last_qualified)
+                self.assertIsNone(app.core.snoozed_until)
+                self.assertEqual(store.today_totals(now), (0, 0))
+                self.assertGreaterEqual(app.core.session_started_at, now)
+            finally:
+                app._shutdown()
+
     @unittest.skipUnless(sys.platform == "win32", "Windows 托盘行为")
     def test_minimize_uses_tray_and_reminders_continue(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -176,9 +222,10 @@ class ReminderWindowTests(unittest.TestCase):
                     self.assertIn("建议再喝", canvas.itemcget(item, "text"))
                 self.assertEqual(app.alert_images[0].width(), 800)
                 self.assertEqual(app.alert_images[1].width(), 1000)
-                app._dismiss_alert()
+                app.manual_button.invoke()
                 self.assertEqual(app.alert_images, [])
                 self.assertEqual(app.alert_text_items, [])
+                self.assertEqual(store.today_totals(datetime.now().astimezone()), (0, 0))
                 Path(saved).unlink()
                 app.core.alert_started = datetime.now().astimezone()
                 with patch("coaster_app.ui.monitor_bounds",
@@ -204,13 +251,13 @@ class ReminderWindowTests(unittest.TestCase):
                 monitors = [(0, 0, 800, 600), (800, -100, 800, 600)]
                 with patch("coaster_app.ui.monitor_bounds", return_value=monitors):
                     app._tick()
-                self.assertEqual(len(app.alert_windows), 2)
-                app.update()
-                for window, (x, y, width, height) in zip(app.alert_windows, monitors):
-                    self.assertEqual((window.winfo_rootx(), window.winfo_rooty(),
-                                      window.winfo_width(), window.winfo_height()),
-                                     (x, y, width, height))
-                app.alert_windows[1].event_generate("<Escape>")
+                    self.assertEqual(len(app.alert_windows), 2)
+                    app.update()
+                    for window, (x, y, width, height) in zip(app.alert_windows, monitors):
+                        self.assertEqual((window.winfo_rootx(), window.winfo_rooty(),
+                                          window.winfo_width(), window.winfo_height()),
+                                         (x, y, width, height))
+                    app.alert_windows[1].event_generate("<Escape>")
                 self.assertEqual(app.alert_windows, [])
                 self.assertIsNone(app.alert_window)
                 self.assertFalse(app.core.alert_active)
