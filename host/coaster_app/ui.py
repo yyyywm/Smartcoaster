@@ -40,6 +40,7 @@ class App(tk.Tk):
         settings = store.load_settings()
         last, alert, progress = store.load_runtime()
         self.core = HydrationCore(settings, last, alert, progress)
+        self._restored_alert_started = alert
         self.weight_g: float | None = None
         self.device_state = "unknown"
         self.connection = False
@@ -675,7 +676,9 @@ class App(tk.Tk):
         window.grab_set()
         body = tk.Frame(window, bg=BG)
         body.place(relx=0.5, rely=0.5, anchor="center")
-        self._label(body, "现在喝水。", 48, TEXT, True).pack(pady=(0, 20))
+        title = ("上次提醒尚未完成" if self.core.alert_started == self._restored_alert_started
+                 else "现在喝水。")
+        self._label(body, title, 48, TEXT, True).pack(pady=(0, 20))
         self.alert_text = tk.StringVar()
         tk.Label(body, textvariable=self.alert_text, bg=BG, fg=ACCENT,
                  font=("Microsoft YaHei UI", 22)).pack(pady=(0, 24))
@@ -684,7 +687,7 @@ class App(tk.Tk):
         if self.demo_mode:
             tk.Button(body, text="模拟喝水", command=lambda: self.feed.simulate_drink(self.core.settings.sip_target_ml),
                       bg=ACCENT, fg=BG, relief="flat", padx=26, pady=10).pack(pady=25)
-        self._label(body, "紧急退出：Ctrl + Shift + Q", 10, MUTED).pack(pady=(50, 0))
+        self._label(body, "紧急关闭整个软件：Ctrl + Shift + Q", 10, MUTED).pack(pady=(50, 0))
         self._update_alert()
 
     def _update_alert(self) -> None:
