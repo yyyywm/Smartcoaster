@@ -120,15 +120,14 @@ class HydrationCore:
         self.snoozed_until = now + self.snooze_delay()
         return True
 
-    def acknowledge_unmeasured_drink(self, now: datetime) -> bool:
-        """Trust the user's action for scheduling, without claiming measured water."""
-        if not self.alert_active:
-            return False
+    def register_refill(self, now: datetime) -> bool:
+        """Treat refill as drinking for scheduling only; return whether an alert ended."""
+        was_active = self.alert_active
         self.alert_started = None
         self.alert_progress_ml = 0.0
         self.snoozed_until = None
         self.session_started_at = now
-        return True
+        return was_active
 
     @property
     def alert_active(self) -> bool:

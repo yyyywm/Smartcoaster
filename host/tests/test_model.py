@@ -64,15 +64,25 @@ class SettingsTests(unittest.TestCase):
 
 
 class ReminderTests(unittest.TestCase):
-    def test_manual_completion_resets_reminder_without_recording_water(self):
+    def test_refill_resets_reminder_without_recording_water(self):
         core = HydrationCore(Settings(interval_min=45, sip_target_ml=150),
                              alert_started=at(10))
-        self.assertTrue(core.acknowledge_unmeasured_drink(at(10, 2)))
+        self.assertTrue(core.register_refill(at(10, 2)))
         self.assertFalse(core.alert_active)
         self.assertIsNone(core.last_qualified)
         self.assertEqual(core.due_at(at(10, 2)), at(10, 47))
         self.assertFalse(core.tick(at(10, 46), True))
         self.assertTrue(core.tick(at(10, 47), True))
+
+    def test_refill_before_reminder_or_during_snooze_starts_normal_interval(self):
+        core = HydrationCore(Settings(interval_min=45))
+        self.assertFalse(core.register_refill(at(9, 30)))
+        self.assertEqual(core.due_at(at(9, 30)), at(10, 15))
+        core.tick(at(10, 15), True)
+        core.dismiss_alert(at(10, 16))
+        self.assertFalse(core.register_refill(at(10, 17)))
+        self.assertIsNone(core.snoozed_until)
+        self.assertEqual(core.due_at(at(10, 17)), at(11, 2))
 
     def test_dismiss_alert_snoozes_without_claiming_a_drink(self):
         core = HydrationCore(Settings(interval_min=45), alert_started=at(10))

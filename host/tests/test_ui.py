@@ -79,7 +79,7 @@ class FakeSerialFeed:
 
 
 class ReminderWindowTests(unittest.TestCase):
-    def test_refill_after_unobserved_drink_keeps_reminder_active(self):
+    def test_refill_after_unobserved_drink_ends_reminder_without_counting_water(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
             messages = queue.Queue()
@@ -93,14 +93,14 @@ class ReminderWindowTests(unittest.TestCase):
                 self.assertIsNotNone(app.alert_window)
                 app._handle_frame({"event": "refill", "ml": 300,
                                    "weight_g": 620}, now)
-                self.assertTrue(app.core.alert_active)
-                self.assertIsNotNone(app.alert_window)
+                self.assertFalse(app.core.alert_active)
+                self.assertIsNone(app.alert_window)
                 self.assertEqual(app.core.alert_progress_ml, 0)
                 self.assertEqual(store.today_totals(now), (0, 0))
             finally:
                 app._shutdown()
 
-    def test_manual_completion_after_refill_stops_alert_without_drink_record(self):
+    def test_invalid_refill_does_not_cancel_reminder(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "ui.db")
             messages = queue.Queue()
@@ -111,17 +111,10 @@ class ReminderWindowTests(unittest.TestCase):
                 app.connection = True
                 app.last_frame_at = now
                 app._tick()
-                app._handle_frame({"event": "refill", "ml": 100,
-                                   "weight_g": 620}, now)
-                self.assertTrue(app.core.alert_active)
-                self.assertIn("不计入统计", app.manual_button.cget("text"))
-                app.manual_button.invoke()
-                self.assertFalse(app.core.alert_active)
-                self.assertIsNone(app.alert_window)
-                self.assertIsNone(app.core.last_qualified)
-                self.assertIsNone(app.core.snoozed_until)
+                for amount in (0, -1, True, float("nan"), float("inf"), 9000, "100"):
+                    app._handle_frame({"event": "refill", "ml": amount}, now)
+                    self.assertTrue(app.core.alert_active)
                 self.assertEqual(store.today_totals(now), (0, 0))
-                self.assertGreaterEqual(app.core.session_started_at, now)
             finally:
                 app._shutdown()
 
@@ -222,7 +215,7 @@ class ReminderWindowTests(unittest.TestCase):
                     self.assertIn("建议再喝", canvas.itemcget(item, "text"))
                 self.assertEqual(app.alert_images[0].width(), 800)
                 self.assertEqual(app.alert_images[1].width(), 1000)
-                app.manual_button.invoke()
+                app._handle_frame({"event": "refill", "ml": 100}, datetime.now().astimezone())
                 self.assertEqual(app.alert_images, [])
                 self.assertEqual(app.alert_text_items, [])
                 self.assertEqual(store.today_totals(datetime.now().astimezone()), (0, 0))
