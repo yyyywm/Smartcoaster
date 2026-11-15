@@ -1,123 +1,85 @@
-# 智能杯垫（Smart Coaster）— ESP32-C3 + HX711
+# SmartCoaster · 智能杯垫
 
-基于 ESP32-C3 和 HX711 称重传感器的智能杯垫固件：
+An ESP32-C3 + HX711 smart coaster with a Windows hydration reminder app and SolidWorks enclosure designs.
 
-- **只统计可确认的净减少**：杯垫按「上次稳定重量 − 本次稳定重量」结算；拿杯喝水或在位喝水都适用。补水后重量未减少时不推算期间的饮水量。
-- **喝水提醒**：距上次喝水超过阈值（默认 45 分钟，上位机可配）上报提醒事件
-- **两种杯子标定模式**：记录空杯重后，过滤低于空杯重的异常变化；再记录满杯重后，以满杯容量上界过滤其他物体或换杯。标定值写入 NVS。
-- **空载误判恢复**：若空杯垫因零点漂移被误判有杯，可在上位机确认空载后归零；空载基线变化较大时固件会定期保存，减少重启后恢复旧零点的机会。
-- **USB 直连上位机**：USB Serial/JTAG（GPIO18/19）上跑 JSON Lines 协议，一根 USB 线供电 + 通信
+通过称重变化记录饮水，配合桌面端进行定时提醒和每日目标统计。仓库包含 ESP32-C3 固件、Python/Tkinter 桌面端、SolidWorks 外壳设计和宿主测试。
 
-## 接线
+- **桌面端**：工作时段提醒、全屏背景、多显示器、系统托盘、自动串口连接和双点杯子标定。
+- **月历统计**：周一开始、整月显示，达标绿色、未达标红色；无记录及未来日期灰色。
+- **本地记录**：SQLite 保存设置和饮水记录，可导出 CSV，没有云同步服务。
+- **固件**：只按可确认的净重量减少计量；补水不反推期间饮水量，配置和运行状态保存到 NVS。
+- **外壳**：可编辑零件、装配、生成脚本和 STL。当前仍是布局原型，需实物试装。
 
-| HX711 | ESP32-C3 |
+称重减少不能证明水被喝下，倒水、换杯和传感器误差都可能影响结果。本项目不是医疗计量设备。
+
+## 快速开始
+
+### Windows 用户
+
+取得分发 ZIP 后解压，运行 `SmartCoaster.exe`，无需安装 Python。连接已烧录配套固件的杯垫，首次在“设置”中配置时间、目标及杯子标定。
+
+顶部导航：**总览 → 统计 → 设置 → 数据**。设备选择、刷新和连接按钮位于顶部右侧、COM 状态左边。详细说明见 [桌面版使用说明](desktop/DISTRIBUTION.md)。
+
+本地构建 ZIP 位于 `desktop/release/`，不提交到 Git。仓库不包含已发布的安装包或固件二进制；公开发布时可把验证后的 ZIP 附到 GitHub Release。
+
+### 开发者
+
+本机复用已有 Conda 环境 `dsh_coaster`，不创建项目 `.venv`。从仓库根目录执行：
+
+```powershell
+conda run --no-capture-output -n dsh_coaster python -s -X utf8 -m pip install -r desktop/requirements.txt
+conda run --no-capture-output -n dsh_coaster python -s -X utf8 desktop/smart_coaster.py --selftest
+conda run --no-capture-output -n dsh_coaster python -s -X utf8 desktop/smart_coaster.py --simulate --db demo.db
+```
+
+新贡献者如果尚无该环境，可先自行执行 `conda create -n dsh_coaster python=3.11 pip`。日常开发和打包复用已有环境。演示数据库与正式数据库分开，`demo.db` 不纳入 Git。
+
+Windows 打包：
+
+```powershell
+powershell -NoProfile -File desktop/build.ps1
+```
+
+固件构建和接线见 [firmware/README.md](firmware/README.md)，CAD 使用见 [cad/README.md](cad/README.md)。
+
+## 目录
+
+```text
+Smartcoaster/
+├── desktop/            桌面端源码、资源、测试和 Windows 打包入口
+│   ├── coaster_app/    规则、存储、串口、月历和界面
+│   ├── assets/         图标及生成脚本
+│   └── tests/          离线规则与 GUI 测试
+├── firmware/           ESP-IDF 工程
+│   ├── components/     HX711 驱动、称重状态机、NVS、协议
+│   ├── main/           采样、命令处理与状态上报
+│   └── tests/          GCC 宿主测试，不依赖硬件
+├── cad/                SolidWorks 零件、装配和生成脚本
+│   ├── exports/stl/    当前外壳 STL 导出
+│   └── references/     外部参考说明；未核实许可的模型仅保留本地
+├── docs/               架构、协议、维护发布与验证记录
+├── CONTRIBUTING.md     贡献与验证约定
+├── THIRD_PARTY_NOTICES.md
+└── LICENSE             MIT
+```
+
+`desktop/` 由原 `host/` 更名，Python 包名 `coaster_app` 保持不变；CAD 原生文件名保留，以免破坏装配引用。GitHub 仓库为 [yyyywm/Smartcoaster](https://github.com/yyyywm/Smartcoaster)，本地旧文件夹名 `esp32c3_hx711` 和固件 CMake 工程标识不影响克隆和运行。
+
+## 文档索引
+
+| 文档 | 内容 |
 |---|---|
-| DOUT (DT) | GPIO4 |
-| SCK | GPIO5 |
-| VCC | 3.3V |
-| GND | GND |
+| [桌面端](desktop/README.md) | 环境、运行、界面功能和提醒规则 |
+| [用户分发说明](desktop/DISTRIBUTION.md) | 免安装启动、标定、退出和备份 |
+| [固件](firmware/README.md) | 接线、构建烧录、校准和 SDK 注意事项 |
+| [CAD](cad/README.md) | 当前版本、装配顺序、尺寸和验证限制 |
+| [架构](docs/ARCHITECTURE.md) | 模块边界、数据流和持久化 |
+| [串口协议](docs/PROTOCOL.md) | JSON Lines 事件、命令与边界 |
+| [维护与发布](docs/MAINTENANCE.md) | 依赖、打包、清理、升级和 Git 发布 |
+| [测试](docs/TESTING.md) | 验证命令、覆盖范围及验证记录 |
+| [贡献](CONTRIBUTING.md) | 命名、变更范围与提交检查 |
+| [变更记录](CHANGELOG.md) | 当前未发布功能及目录迁移 |
 
-## 构建烧录
+## 许可证
 
-```powershell
-& C:\Users\19693\esp\esp-idf\export.ps1
-cd firmware
-idf.py build
-idf.py -p COMx flash  # 用设备管理器中当前的 COM 号替换 COMx
-```
-
-监视输出：任意串口工具打开 *USB JTAG/serial debug unit (COMx)*，115200 8N1（USB CDC 实际与波特率无关）。
-
-## 单元测试（无需硬件 / IDF）
-
-核心逻辑（状态机 `coaster.c` + 协议格式 `protocol.c`）可脱离 ESP-IDF 在 PC 上直接编译运行，
-用于改逻辑/改协议前先自检：
-
-```powershell
-cd firmware/tests
-make test        # 或 make test CC=gcc
-```
-
-详见 [firmware/tests/README.md](firmware/tests/README.md)。
-
-## 上位机软件（桌面端 · Tkinter）
-
-USB 串口接收固件 JSON Lines，桌面端提供工作时段全屏饮水提醒、杯中估算水量、
-本机 SQLite 每日统计。上位机分为总览、设置和数据页；设置页完成空杯/满杯标定，数据页可导出 CSV、删除选中记录及清空今日或全部统计。
-
-```powershell
-conda create -y -n dsh_coaster python=3.11
-conda activate dsh_coaster
-pip install -r host/requirements.txt   # pyserial
-python host/smart_coaster.py --simulate    # 无板演示
-python host/smart_coaster.py --list        # 查看端口
-python host/smart_coaster.py              # 自动连接 ESP32-C3
-python host/smart_coaster.py --port COMx   # 或指定当前端口，如 COM18
-```
-
-详见 [host/README.md](host/README.md)。
-
-## ⚠️ 本地 IDF 补丁记录（重要）
-
-本项目将控制台设为 USB Serial/JTAG 主控制台，会触发 ESP-IDF ≤ v5.3.1 的一个官方 bug（[乐鑫通告 AR2025-006](https://documentation.espressif.com/AR2025-006_Usage_Instructions_for_Configuring_the_Console_Output_Channel_for_the_ESP32-C3_Chip_Revision_v1.1.html)）：`esp32c3/clk.c` 中 `esp_rom_uart_tx_wait_idle(CONFIG_ESP_CONSOLE_UART_NUM)` 在 USJ 控制台下传入 -1 导致启动崩溃循环。
-
-已对本地 IDF（`C:\Users\19693\esp\esp-idf`）打补丁（2026-11-07，`git diff` 可见，未提交）：
-
-- `components/esp_system/port/soc/esp32c3/clk.c`：该行外加 `#if CONFIG_ESP_CONSOLE_UART` 保护
-
-官方修复在 **v5.3.2**（commit `3e700ef`）。**升级 IDF 到 v5.3.2 或更高版本后，此本地补丁应丢弃**（`git checkout -- components/esp_system/port/soc/esp32c3/clk.c`）。
-
-## 通信协议（JSON Lines）
-
-设备 → PC（每行一条，上位机按 `{` 开头过滤，其余为调试日志）：
-
-```json
-{"event":"cup_placed","weight_g":350.2}
-{"event":"cup_removed","weight_g":350.2}
-{"event":"drink","ml":148.0,"estimated":0,"weight_g":202.2}
-{"event":"refill","ml":210.5,"weight_g":412.7}
-{"event":"remind","since_drink_min":46}
-{"status":{"weight_g":350.2,"state":"stable","session_ml":450.0,"since_drink_min":3}}
-{"ack":"set_reminder","ok":1}
-{"config":{"scale":384.70,"reminder_min":45,"estimate_on_refill":0,"baseline_raw":845123,"min_cup_g":215.0,"empty_cup_g":120.0,"full_cup_g":620.0}}
-```
-
-PC → 设备（每行一条，`\n` 结尾）：
-
-```json
-{"cmd":"set_reminder","minutes":45}     // 设置提醒间隔（分钟，0=关闭）
-{"cmd":"set_scale","value":384.7}       // 设置称重校准系数（每克码值）
-{"cmd":"set_cup_calibration","empty_g":120.0,"full_g":620.0} // 仅空杯标定时 full_g=0
-{"cmd":"calibrate_empty"}               // 确认杯垫空载后归零；误报有杯时也可执行
-{"cmd":"get_config"}                    // 查询当前配置
-```
-
-旧命令 `estimate_on_refill` 会返回 `ok:0`，不再启用无法验证的续杯推算。
-
-## 工作原理
-
-```
-NO_CUP --放杯(>25g连续0.3s)--> SETTLING --窗口1s内极差<4g--> STABLE(结算)
-STABLE --拿起(<25g连续0.3s)--> NO_CUP，emit cup_removed
-STABLE --在位重量迁移(水壶加水/吸管喝)--> SETTLING --> STABLE(结算)
-结算规则：W上次稳定 − W本次稳定 > 5g → drink；< −15g → refill，不补记饮水
-```
-
-- 空载基线：`NO_CUP` 状态下自动慢速跟漂（温漂补偿），发现更低空载点快速学习；变化超过 10 g 时，最多每 15 分钟持久化一次
-- 仅空杯标定：重量必须处于空杯重以上，才会把净减少记作饮水
-- 空杯+满杯标定：还要求拿起前和放回后的稳定重量不超过满杯重（容差 4 g）
-- 拿杯后喝水又加满水，若放回重量没有净减少，杯垫无法知道期间喝了多少，因此不记账
-- 状态持久化：每次稳定结算后写入 NVS（包括未达记账阈值的安静结算），空载零点变化较大时定期写入；配置变更另行持久化
-
-## 目录结构
-
-```
-├── firmware/
-│   ├── components/
-│   │   ├── hx711/      HX711 驱动（GPIO 位操作 + esp_timer 超时）
-│   │   └── coaster/    杯垫核心：状态机(coaster.c) + NVS(storage.c) + 协议(protocol.c)
-│   ├── main/
-│   │   └── coaster_main.c  主程序：HX711 采样 ~10Hz → 状态机 → JSON 上报
-│   └── tests/         宿主侧单元测试（无需 IDF/硬件）：状态机 + 协议格式
-└── host/              桌面端上位机：提醒规则 + SQLite + 串口 + Tk 界面
-```
+项目自行编写的代码、文档和自行创建的 CAD 设计采用 [MIT](LICENSE)。第三方运行库、SDK 和参考资源仍遵守各自许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。本次整理不重新分发许可未核实的 USB-C STEP 参考模型。

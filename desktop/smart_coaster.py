@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             ports = available_ports()
         except ImportError:
-            print("缺少 pyserial：pip install -r host/requirements.txt", file=sys.stderr)
+            print("缺少 pyserial：pip install -r desktop/requirements.txt", file=sys.stderr)
             return 1
         for name, description in ports:
             print(f"{name}  {description}")
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             import serial  # noqa: F401
         except ImportError:
-            print("缺少 pyserial：pip install -r host/requirements.txt", file=sys.stderr)
+            print("缺少 pyserial：pip install -r desktop/requirements.txt", file=sys.stderr)
             return 1
 
     from coaster_app.ui import App

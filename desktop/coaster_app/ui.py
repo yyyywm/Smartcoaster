@@ -1,7 +1,7 @@
 """Tkinter dashboard and fullscreen drinking reminder."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 import math
 import queue
@@ -18,6 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import ImageTk
 
 from .displays import monitor_bounds, position_window
+from .calendar_view import ACHIEVED, MISSED, EMPTY, DrinkingCalendar
 from .model import HydrationCore, Settings
 from .reminder_image import frost_text_panel, import_picture, load_picture, render_picture
 from .rounded_panel import RoundedField, RoundedPanel
@@ -84,6 +85,8 @@ class App(tk.Tk):
         self.zero_in_flight_at: float | None = None
         self.records_page = 0
         self.records_dirty = True
+        self.statistics_month = date.today().replace(day=1)
+        self._statistics_signature = None
         self.delete_pending: tuple[str, float, tuple[int, ...]] | None = None
 
         self.title("智能杯垫 · 饮水提醒")
@@ -137,43 +140,45 @@ class App(tk.Tk):
 
         top = tk.Frame(page, bg=BG)
         top.pack(fill="x", padx=18, pady=(12, 8))
-        self._label(top, "智能杯垫", 17, TEXT, True).pack(side="left", padx=(0, 24))
+        top.columnconfigure(2, weight=1)
+        self._label(top, "智能杯垫", 17, TEXT, True).grid(row=0, column=0, padx=(0, 16))
         navigation = tk.Frame(top, bg=PANEL_ALT, padx=3, pady=3)
-        navigation.pack(side="left")
+        navigation.grid(row=0, column=1)
         self.view_buttons: dict[str, SoftButton] = {}
-        for key, label in (("overview", "总览"), ("settings", "设置"), ("records", "数据")):
+        for key, label in (("overview", "总览"), ("statistics", "统计"),
+                           ("settings", "设置"), ("records", "数据")):
             button = SoftButton(navigation, text=label, command=lambda name=key: self._show_view(name),
-                               bg=PANEL_ALT, fg=MUTED, relief="flat", padx=15, pady=4,
+                               bg=PANEL_ALT, fg=MUTED, relief="flat", padx=12, pady=4,
                                activebackground=PANEL, activeforeground=TEXT,
                                cursor="hand2")
             button.pack(side="left", padx=1)
             self.view_buttons[key] = button
         self.mode_var = tk.StringVar(value="提醒自动运行")
         tk.Label(top, textvariable=self.mode_var, bg=BG, fg=ACCENT,
-                 font=("Microsoft YaHei UI", 9)).pack(side="left", padx=(12, 0))
+                 font=("Microsoft YaHei UI", 9), anchor="w").grid(
+                     row=0, column=2, sticky="ew", padx=(10, 8))
         self.conn_var = tk.StringVar(value="连接中")
         tk.Label(top, textvariable=self.conn_var, bg=PANEL, fg=MUTED,
-                 font=("Microsoft YaHei UI", 9), padx=10, pady=4).pack(side="right")
+                 font=("Microsoft YaHei UI", 9), padx=10, pady=4).grid(row=0, column=4)
 
         if not self.demo_mode:
-            devices = tk.Frame(page, bg=PANEL, padx=12, pady=7)
-            devices.pack(fill="x", padx=18, pady=(0, 8))
-            self._label(devices, "设备", 10, MUTED).pack(side="left", padx=(0, 10))
+            devices = tk.Frame(top, bg=BG)
+            devices.grid(row=0, column=3, padx=(0, 8))
             self.port_var = tk.StringVar()
             self.port_combo = ttk.Combobox(devices, textvariable=self.port_var,
-                                           state="readonly", width=34)
-            self.port_combo.pack(side="left", padx=(0, 8))
+                                           state="readonly", width=15)
+            self.port_combo.pack(side="left", padx=(0, 5))
             SoftButton(devices, text="刷新", command=self._refresh_ports,
-                      bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12).pack(side="left", padx=(0, 8))
+                      bg=PANEL_ALT, fg=TEXT, relief="flat", padx=8, pady=4).pack(side="left", padx=(0, 5))
             self.connect_button = SoftButton(devices, text="断开连接", command=self._toggle_connection,
-                                            bg=PANEL_ALT, fg=TEXT, relief="flat", padx=14)
-            self.connect_button.pack(side="left", padx=(0, 8))
+                                            bg=PANEL_ALT, fg=TEXT, relief="flat", padx=8, pady=4)
+            self.connect_button.pack(side="left")
             self._refresh_ports()
 
         self.view_area = tk.Frame(page, bg=BG)
         self.view_area.pack(fill="both", expand=True, padx=18, pady=(0, 10))
         self.views = {name: tk.Frame(self.view_area, bg=BG)
-                      for name in ("overview", "settings", "records")}
+                      for name in ("overview", "statistics", "settings", "records")}
         content = self.views["overview"]
         content.columnconfigure(0, weight=1618, uniform="dashboard")
         content.columnconfigure(1, weight=1000, uniform="dashboard")
@@ -393,7 +398,74 @@ class App(tk.Tk):
                   bg=PANEL_ALT, fg=TEXT, relief="flat", padx=10).pack(side="right", padx=(0, 8))
         tk.Label(pager, textvariable=self.records_page_label, bg=PANEL, fg=MUTED,
                  font=("Microsoft YaHei UI", 9)).pack(side="left", padx=12)
+        self._build_statistics()
         self._show_view("overview")
+
+    def _build_statistics(self) -> None:
+        panel = RoundedPanel(self.views["statistics"], surface=PANEL, padx=14, pady=10)
+        panel.pack(fill="both", expand=True)
+        header = tk.Frame(panel, bg=PANEL)
+        header.pack(fill="x")
+        self._label(header, "饮水统计", 14, TEXT, True).pack(side="left")
+        navigation = tk.Frame(header, bg=PANEL)
+        navigation.pack(side="right")
+        self.statistics_previous = SoftButton(
+            navigation, text="‹", command=lambda: self._change_statistics_month(-1),
+            bg=PANEL_ALT, fg=TEXT, padx=12, pady=3)
+        self.statistics_previous.pack(side="left")
+        self.statistics_month_var = tk.StringVar()
+        tk.Label(navigation, textvariable=self.statistics_month_var, bg=PANEL,
+                 fg=TEXT, width=13, font=("Microsoft YaHei UI", 12, "bold")).pack(side="left", padx=6)
+        self.statistics_next = SoftButton(
+            navigation, text="›", command=lambda: self._change_statistics_month(1),
+            bg=PANEL_ALT, fg=TEXT, padx=12, pady=3)
+        self.statistics_next.pack(side="left")
+        SoftButton(navigation, text="回到本月", command=self._statistics_this_month,
+                   bg=PANEL_ALT, fg=TEXT, padx=12, pady=3).pack(side="left", padx=(10, 0))
+        summary = tk.Frame(panel, bg=PANEL)
+        summary.pack(fill="x", pady=(7, 10))
+        self.statistics_goal_var = tk.StringVar()
+        tk.Label(summary, textvariable=self.statistics_goal_var, bg=PANEL, fg=MUTED,
+                 font=("Microsoft YaHei UI", 9)).pack(side="left")
+        self.statistics_achieved_var = tk.StringVar()
+        tk.Label(summary, textvariable=self.statistics_achieved_var, bg=PANEL, fg=ACHIEVED,
+                 font=("Microsoft YaHei UI", 9)).pack(side="left", padx=20)
+        footer = tk.Frame(panel, bg=PANEL)
+        footer.pack(side="bottom", fill="x", pady=(10, 0))
+        for label, color in (("● 达标", ACHIEVED), ("● 未达标", MISSED),
+                             ("● 无记录 / 未到日期", EMPTY)):
+            self._label(footer, label, 9, color).pack(side="left", padx=(0, 18))
+        self._label(footer, "今日数据持续更新", 9, MUTED).pack(side="right")
+        self.statistics_calendar = DrinkingCalendar(panel)
+        self.statistics_calendar.pack(fill="both", expand=True)
+
+    def _change_statistics_month(self, direction: int) -> None:
+        index = (self.statistics_month.year - 1) * 12 + self.statistics_month.month - 1 + direction
+        if 0 <= index < 9999 * 12:
+            year, month = divmod(index, 12)
+            self.statistics_month = date(year + 1, month + 1, 1)
+            self._refresh_statistics()
+
+    def _statistics_this_month(self) -> None:
+        self.statistics_month = date.today().replace(day=1)
+        self._refresh_statistics()
+
+    def _refresh_statistics(self) -> None:
+        today = date.today()
+        goal = self.core.settings.daily_goal_ml
+        signature = (self.statistics_month, today, goal, self.store.conn.total_changes)
+        if signature == self._statistics_signature:
+            return
+        month = self.statistics_month
+        totals = self.store.month_totals(month.year, month.month)
+        achieved = sum(ml >= goal for day, ml in totals.items() if day <= today)
+        self.statistics_month_var.set(f"{month.year}年{month.month}月")
+        self.statistics_goal_var.set(f"当前每日目标 {goal} ml · 仅统计称重确认")
+        self.statistics_achieved_var.set(f"本月已达标 {achieved} 天")
+        self.statistics_previous.configure(state="disabled" if month == date.min else "normal")
+        self.statistics_next.configure(state="disabled" if month == date(9999, 12, 1) else "normal")
+        self.statistics_calendar.set_month(month, totals, goal, today)
+        self._statistics_signature = signature
 
     def _show_view(self, name: str) -> None:
         if name != "records":
@@ -408,6 +480,8 @@ class App(tk.Tk):
                              fg=TEXT if key == name else MUTED)
         if name == "records":
             self._refresh_records()
+        elif name == "statistics":
+            self._refresh_statistics()
 
     def _show_image_mode_menu(self) -> None:
         button = self.image_mode_menu
@@ -894,6 +968,8 @@ class App(tk.Tk):
                 self.next_detail_var.set("下一工作时段会自动恢复提醒。")
         if self.active_view == "records" and self.records_dirty:
             self._refresh_records()
+        if self.active_view == "statistics":
+            self._refresh_statistics()
 
     def _draw_progress(self, ratio: float) -> None:
         canvas = self.progress_canvas

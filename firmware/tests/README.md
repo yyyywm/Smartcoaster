@@ -11,7 +11,7 @@
 
 `stubs/` 下提供宿主端最小的 `cJSON` / `freertos` / `ESP_LOG` 桩，使 `protocol.c` 能在 PC 上编译运行。
 
-未覆盖（需 IDF / 真机）：`storage.c` 的 NVS 读写、`coaster_main.c` 的整体流程、`hx711.c` 的 SPI 时序。
+未覆盖（需 IDF / 真机）：`storage.c` 的 NVS 读写、`coaster_main.c` 的整体流程、`hx711.c` 的 GPIO 时序。
 
 ## 运行
 

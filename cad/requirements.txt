@@ -1,0 +1,2 @@
+# Optional: Windows + installed SOLIDWORKS; not a desktop dependency.
+pywin32>=306; sys_platform == "win32"

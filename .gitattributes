@@ -1,4 +1,7 @@
 * text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+LICENSE text eol=lf
 *.c text eol=lf
 *.h text eol=lf
 *.py text eol=lf
@@ -7,3 +10,14 @@
 *.projbuild text eol=lf
 Makefile text eol=lf
 sdkconfig text eol=lf
+*.ps1 text eol=crlf
+*.spec text eol=lf
+*.yml text eol=lf
+*.SLDPRT binary
+*.SLDASM binary
+*.STL binary
+*.stl binary
+*.STEP binary
+*.step binary
+*.png binary
+*.ico binary

@@ -502,7 +502,7 @@ class ReminderWindowTests(unittest.TestCase):
                             yield child
                             yield from descendants(child)
 
-                    for view in ("overview", "settings", "records"):
+                    for view in ("overview", "settings", "records", "statistics"):
                         with self.subTest(view=view):
                             app._show_view(view)
                             app._render()

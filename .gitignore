@@ -6,7 +6,8 @@ sdkconfig.old
 # CMake build directory
 CMakeFiles/
 cmake_install.cmake
-*.cmake
+CMakeCache.txt
+compile_commands.json
 
 # IDE
 .idea/
@@ -37,3 +38,29 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+
+# Desktop distribution packages
+/desktop/dist/
+/desktop/release/
+
+# Retired empty directory if an external process still holds it open
+/host/
+
+# Personal runtime data and selected reminder images
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+reminder_images/
+
+# SolidWorks temporary lock files and local previews
+~$*
+*.sldprt~
+*.sldasm~
+/cad/*.bmp
+
+# Optional reference model: redistribution license not verified
+/cad/references/*.step
+/cad/references/*.STEP

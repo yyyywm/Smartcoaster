@@ -18,19 +18,29 @@ Windows 下应用会在创建窗口前启用 DPI 感知，让高分辨率屏幕�
 - 尚未记录空杯重时，杯子放稳后仍会显示「已放杯」和杯+水总重（g）；此时不会把总重误标为水量（ml）。
 - 若杯垫上没有任何物品却显示有杯，在「设置 → 杯子标定」中连续两次点击「杯垫空载归零」。归零会清除旧的空杯／满杯标定，之后须重新记录杯子重量。
 - 按本机日期统计今日已记录饮水量、目标进度。「数据」页可分页查看记录、导出 CSV、删除选中、清空今日或全部；删除需在 30 秒内再次点击确认。旧版 `estimated` 数据单列，不计入已确认量。
-- 串口列表按 COM 号排序并标识 ESP32-C3；可选自动查找或指定端口，单个按钮负责连接/断开，意外断线后自动重试。提供无硬件演示模式。
+- 顶部依次为「总览 → 统计 → 设置 → 数据」。「统计」页按周一到周日显示整个月，可切换月份或回到本月。每天显示称重确认的累计饮水量：达到当前每日目标为绿色，未达到为红色；无确认记录和未来日期为灰色。今天用蓝框标出，饮水记录新增、删除和日期变化会自动更新；修改每日目标后，历史日期也按当前目标重新判断。估算记录不计入达标量。
+- 设备选择、刷新和连接/断开按钮位于顶部右侧、COM 状态左边，不再单独占用一行。串口列表按 COM 号排序并标识 ESP32-C3；可选自动查找或指定端口，单个按钮负责连接/断开，意外断线后自动重试。提供无硬件演示模式。
 
 ## 运行
+
+### Windows 免安装分发包
+
+双击分发包中的 `SmartCoaster.exe` 即可运行，无需安装 Python。使用说明见 [DISTRIBUTION.md](DISTRIBUTION.md)。个人数据仍保存在 `%LOCALAPPDATA%\SmartCoaster`，不随分发包提供。
+
+开发者执行 `powershell -File desktop/build.ps1`，通过 `conda run -n dsh_coaster` 使用已有环境，在 `desktop/build/` 生成中间文件，在 `desktop/release/` 生成独立版本目录和 ZIP。包内附 MIT、第三方声明和许可。不覆盖旧版，不创建新环境；可用 `-CondaEnvironment 环境名` 指定已有环境，依赖已满足时加 `-SkipInstall`。详见 [维护与发布](../docs/MAINTENANCE.md)。
+
+### 从源码运行
 
 从项目根目录执行：
 
 ```powershell
-python -m pip install -r host/requirements.txt
-python host/smart_coaster.py                 # 自动查找设备
-python host/smart_coaster.py --port COMx     # 指定当前串口，如 COM18
-python host/smart_coaster.py --simulate      # 无硬件演示
-python host/smart_coaster.py --list          # 列出串口
-python host/smart_coaster.py --selftest      # 离线测试
+conda activate dsh_coaster
+python -s -X utf8 -m pip install -r desktop/requirements.txt
+python desktop/smart_coaster.py                 # 自动查找设备
+python desktop/smart_coaster.py --port COMx     # 指定当前串口，如 COM18
+python desktop/smart_coaster.py --simulate --db demo.db  # 独立数据库演示
+python desktop/smart_coaster.py --list          # 列出串口
+python desktop/smart_coaster.py --selftest      # 离线测试
 ```
 
 启动后自动尝试连接设备并运行提醒计时。可在顶部设备下拉框选择串口，点击「连接设备」；进入「设置」页可随时调整计划和标定，期间不会弹出新提醒。设备的 COM 号变化时点击「刷新」重新选择；使用「自动查找 ESP32-C3」时，应用会在设备重新出现后自动连接。点击「断开连接」会停止重试，直到再次连接。`--port` 只决定启动时的初始选择。
@@ -60,5 +70,6 @@ python host/smart_coaster.py --selftest      # 离线测试
 | `coaster_app/soft_button.py` | 连续曲率按钮与交互反馈 |
 | `coaster_app/rounded_panel.py` | 圆角卡片和输入框表面 |
 | `coaster_app/water_view.py` | 双点标定后的动态水位组件 |
+| `coaster_app/calendar_view.py` | 周一开始的自适应月历与每日达标状态 |
 | `coaster_app/reminder_image.py` | 自定义提醒背景的导入与适配 |
 | `tests/` | 脱离硬件的规则与存储测试 |

@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -104,6 +105,16 @@ class Store:
             (now.date().isoformat(),)).fetchall()
         totals = {estimated: ml for estimated, ml in rows}
         return float(totals.get(0, 0)), float(totals.get(1, 0))
+
+    def month_totals(self, year: int, month: int) -> dict[date, float]:
+        """Confirmed drinking by saved local day, without pagination limits."""
+        first = date(year, month, 1)
+        last = date(year, month, monthrange(year, month)[1])
+        rows = self.conn.execute(
+            "SELECT day, SUM(ml) FROM drinks "
+            "WHERE day>=? AND day<=? AND estimated=0 GROUP BY day",
+            (first.isoformat(), last.isoformat())).fetchall()
+        return {date.fromisoformat(day): float(ml) for day, ml in rows}
 
     def recent(self, limit: int = 8) -> list[tuple[str, float, bool]]:
         rows = self.conn.execute("SELECT at,ml,estimated FROM drinks ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
