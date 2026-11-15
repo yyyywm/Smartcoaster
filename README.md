@@ -20,11 +20,11 @@ An ESP32-C3 + HX711 smart coaster with a Windows hydration reminder app and Soli
 
 顶部导航：**总览 → 统计 → 设置 → 数据**。设备选择、刷新和连接按钮位于顶部右侧、COM 状态左边。详细说明见 [桌面版使用说明](desktop/DISTRIBUTION.md)。
 
-本地构建 ZIP 位于 `desktop/release/`，不提交到 Git。仓库不包含已发布的安装包或固件二进制；公开发布时可把验证后的 ZIP 附到 GitHub Release。
+Windows 分发包可通过下方打包命令生成，输出至 `desktop/release/`。
 
 ### 开发者
 
-本机复用已有 Conda 环境 `dsh_coaster`，不创建项目 `.venv`。从仓库根目录执行：
+需要 Python 3.11 和 Conda。以下示例使用名为 `dsh_coaster` 的环境，从仓库根目录执行：
 
 ```powershell
 conda run --no-capture-output -n dsh_coaster python -s -X utf8 -m pip install -r desktop/requirements.txt
@@ -32,7 +32,7 @@ conda run --no-capture-output -n dsh_coaster python -s -X utf8 desktop/smart_coa
 conda run --no-capture-output -n dsh_coaster python -s -X utf8 desktop/smart_coaster.py --simulate --db demo.db
 ```
 
-新贡献者如果尚无该环境，可先自行执行 `conda create -n dsh_coaster python=3.11 pip`。日常开发和打包复用已有环境。演示数据库与正式数据库分开，`demo.db` 不纳入 Git。
+如果尚未创建环境，先执行 `conda create -n dsh_coaster python=3.11 pip`。演示模式使用独立的 `demo.db`，避免混入正式饮水记录。
 
 Windows 打包：
 
@@ -57,17 +57,15 @@ Smartcoaster/
 ├── cad/                SolidWorks 零件、装配和生成脚本
 │   ├── models/         当前原生设计与 v5 装配
 │   ├── archive/        历史版本及独立装配引用
-│   ├── scripts/legacy/ 旧 COM 脚本；日常操作使用 MCP
+│   ├── scripts/legacy/ 旧版模型生成脚本
 │   ├── exports/stl/    当前外壳 STL 导出
 │   ├── exports/step/   中性格式导出
-│   └── references/     外部参考说明；未核实许可的模型仅保留本地
+│   └── references/     外部参考资料说明
 ├── docs/               架构、协议、维护发布与验证记录
 ├── CONTRIBUTING.md     贡献与验证约定
 ├── THIRD_PARTY_NOTICES.md
 └── LICENSE             MIT
 ```
-
-`desktop/` 由原 `host/` 更名，Python 包名 `coaster_app` 保持不变；CAD 原生文件名保留，以免破坏装配引用。GitHub 仓库为 [yyyywm/Smartcoaster](https://github.com/yyyywm/Smartcoaster)，本地旧文件夹名 `esp32c3_hx711` 和固件 CMake 工程标识不影响克隆和运行。
 
 ## 文档索引
 
@@ -82,8 +80,8 @@ Smartcoaster/
 | [维护与发布](docs/MAINTENANCE.md) | 依赖、打包、清理、升级和 Git 发布 |
 | [测试](docs/TESTING.md) | 验证命令、覆盖范围及验证记录 |
 | [贡献](CONTRIBUTING.md) | 命名、变更范围与提交检查 |
-| [变更记录](CHANGELOG.md) | 当前未发布功能及目录迁移 |
+| [变更记录](CHANGELOG.md) | 版本与功能变更 |
 
 ## 许可证
 
-项目自行编写的代码、文档和自行创建的 CAD 设计采用 [MIT](LICENSE)。第三方运行库、SDK 和参考资源仍遵守各自许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。本次整理不重新分发许可未核实的 USB-C STEP 参考模型。
+项目自行编写的代码、文档和自行创建的 CAD 设计采用 [MIT](LICENSE)。第三方运行库、SDK 和参考资源仍遵守各自许可证，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
