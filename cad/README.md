@@ -1,40 +1,49 @@
-# 智能杯垫外壳装配说明
+# 智能杯垫外壳设计
 
-当前 SolidWorks 2023 零件：`Coaster_Base_v4.SLDPRT`、`Coaster_Top_v5.SLDPRT`，装配为 `Smart_Coaster_layout_v5.SLDASM`。脚本尺寸单位为毫米；首次先打开模型检查，不要直接重生成覆盖手工修改。
+默认使用 **SolidWorks MCP** 打开、查询、建模、更新引用、保存和导出。没有特殊情况不从终端运行独立 COM 脚本，具体约定见 [AGENTS.md](AGENTS.md)。
 
-## 版本与目录
+## 当前设计入口
+
+打开 [models/Smart_Coaster_layout_v5.SLDASM](models/Smart_Coaster_layout_v5.SLDASM)。该目录包含装配及全部三个原生组件，原生文件名保留。
 
 | 文件 | 用途 |
 |---|---|
-| `Coaster_Base_v4.SLDPRT` | 当前固定底座 |
-| `Coaster_Top_v5.SLDPRT` | 当前活动承杯盘 |
-| `LoadCell_5kg_75x12p7x7_proxy.SLDPRT` / `.STEP` | 传感器空间和孔位占位模型 |
-| `Smart_Coaster_layout_v5.SLDASM` | 当前三组件布局装配 |
+| `models/Coaster_Base_v4.SLDPRT` | 当前固定底座 |
+| `models/Coaster_Top_v5.SLDPRT` | 当前活动承杯盘 |
+| `models/LoadCell_5kg_75x12p7x7_proxy.SLDPRT` | 传感器空间和孔位占位件 |
+| `models/Smart_Coaster_layout_v5.SLDASM` | 当前三组件布局装配 |
 | `exports/stl/coaster_base_v4.stl` | 当前底座 STL |
 | `exports/stl/coaster_top_v5.stl` | 当前上盘 STL |
-| 其他带版本号的零件和装配 | 历史迭代，保留原位避免破坏引用 |
-| `references/` | 外部参考说明；未核实许可的模型不入 Git |
+| `exports/step/LoadCell_5kg_75x12p7x7_proxy.STEP` | 传感器占位件中性格式 |
 
-原生模型作为设计源文件纳入 Git；锁文件 `~$*`、预览 BMP 不纳入。当前文件很小，暂未启用 Git LFS。原生文件保留已有英文名，STL 导出统一小写下划线。
+## 目录
 
-## 生成环境
-
-需要 Windows、SolidWorks 2023、零件/装配模板和 Python `pywin32`。模板路径在脚本中定义，其他电脑应按实际安装调整。从仓库根目录执行：
-
-```powershell
-conda run -n dsh_coaster python -s -X utf8 -m pip install -r cad/requirements.txt
-conda run -n dsh_coaster python -s -X utf8 cad/generate_sensor_proxy.py
-conda run -n dsh_coaster python -s -X utf8 cad/generate_coaster.py
-conda run -n dsh_coaster python -s -X utf8 cad/assemble_coaster.py
+```text
+cad/
+├── models/          当前原生零件与 v5 装配
+├── archive/         旧设计及 v1–v4 装配
+├── exports/
+│   ├── stl/         当前壳体打印格式
+│   └── step/        中性格式导出
+├── scripts/legacy/  旧版 COM 脚本与可选依赖
+├── references/      外部参考说明和仅本地保留的模型
+├── AGENTS.md        MCP 操作与文件维护约定
+└── README.md
 ```
 
-脚本通过 COM 创建/保存文件，可能覆盖同名版本，不属于离线测试。执行前保存手工修改并确认没有其他 SolidWorks 自动化任务；完成后及时保存并关闭独立零件窗口。装配引用的零件可随装配加载。
+历史版本见 [archive/README.md](archive/README.md)，其中的传感器副本用于冻结旧装配引用，不依赖当前版本。原生设计纳入 Git，锁文件和预览不纳入；当前规模无需 Git LFS。
 
-装配占位件：`LoadCell_5kg_75x12p7x7_proxy.SLDPRT`，另有同形状的 STEP 文件。运行 `python generate_sensor_proxy.py` 可重新生成。它按用户图纸制作外廓与四个孔中心，仅供空间和孔位装配测试；应变片凹槽、实际螺纹及引线未建模。
+2026-11-15 通过 MCP 更新了五个装配的 15 条引用，逐个打开确认三个组件完整加载。另复制到独立位置重新打开，各组件均来自复制后的目录，未回退到原路径。完成后关闭本次验证文档。本次只验证文件引用，不代表完成干涉、强度或实物验收。
 
-当前装配：`Smart_Coaster_layout_v5.SLDASM` 包含底座、传感器占位件、承杯盘三个组件。运行 `python assemble_coaster.py` 可重新生成。组件按图纸孔位同轴放置：传感器两端分别贴合上下壳的一体支座。当前装配尚未加入螺钉、电子板和装配约束。
+## 使用与维护
 
-USB-C 参考模型：`references/USB_C_Receptacle_HRO_TYPE-C-31-M-12.step`；旧记录标注来自 Nabu Casa，但精确版本及许可尚未核实，模型仅保留本地且不提交 Git，详见 `references/README.md`。参考开口还核对了 Molex 105450 系列插座图纸中的约 8.94 mm 接口宽度、3.56 mm 接口高度。由于开发板上的实际插座型号未知，底座先开约 12 × 7 mm 的侧壁孔，位于远离传感器梁的外缘，需用实际 USB 插头和开发板试装确认位置与余量。
+当前文件为 SolidWorks 2023 格式。先打开装配检查，不直接重生成覆盖设计；修改后通过 MCP 保存，完成的独立零件及时关闭。
+
+传感器占位件按 75 × 12.7 × 7 mm 外廓及四个孔中心制作，只供空间和孔位检查；应变片凹槽、实际螺纹和引线未建模。当前装配尚无完整螺钉、电子板和装配约束，组件依图纸位置布置。
+
+[旧脚本说明](scripts/legacy/README.md)仅用于回溯生成过程或 MCP 无法使用的特殊情况。脚本路径已适配新目录，只做语法和路径检查，没有运行重生成。
+
+USB-C 本地参考说明见 [references/README.md](references/README.md)。参考 STEP 的精确版本与许可未核实，模型本体被 Git 忽略，不随公开仓库分发；当前装配和生成过程均不依赖它。底座开口参考过 Molex 105450 系列图纸的接口外形，但实际开发板插座型号未知，仍须实物确认位置与余量。
 
 ## 已确定的输入
 

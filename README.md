@@ -55,7 +55,11 @@ Smartcoaster/
 │   ├── main/           采样、命令处理与状态上报
 │   └── tests/          GCC 宿主测试，不依赖硬件
 ├── cad/                SolidWorks 零件、装配和生成脚本
+│   ├── models/         当前原生设计与 v5 装配
+│   ├── archive/        历史版本及独立装配引用
+│   ├── scripts/legacy/ 旧 COM 脚本；日常操作使用 MCP
 │   ├── exports/stl/    当前外壳 STL 导出
+│   ├── exports/step/   中性格式导出
 │   └── references/     外部参考说明；未核实许可的模型仅保留本地
 ├── docs/               架构、协议、维护发布与验证记录
 ├── CONTRIBUTING.md     贡献与验证约定

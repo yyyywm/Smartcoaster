@@ -8,6 +8,7 @@
 - 原 `host/` 迁移至 `desktop/`，Python 包 `coaster_app` 不变。
 - 纳入 SolidWorks 设计、生成脚本和当前 STL；原生模型保留历史版本与装配引用。
 - STL 统一放入 `cad/exports/stl/`，参考说明放入 `cad/references/`；许可未核实的外部 STEP 不公开提交。
+- CAD 当前设计移到 `cad/models/`，历史版本移到 `cad/archive/`，旧脚本移到 `cad/scripts/legacy/`；通过 MCP 修复和验证装配引用，后续 SolidWorks 操作默认使用 MCP。
 - 新增 MIT、第三方声明及开发、架构、协议、测试、维护发布文档。
 
 此记录对应源码整理，不表示已创建 GitHub Release、签名程序或完成新电脑/硬件验收。已有提醒与称重功能的更早变更可通过 Git 历史查看。

@@ -7,7 +7,8 @@ Strain-gauge reliefs and cable are intentionally omitted.
 from pathlib import Path
 import win32com.client
 
-ROOT = Path(__file__).parent
+CAD_ROOT = Path(__file__).resolve().parents[2]
+ROOT = CAD_ROOT / "models"
 TEMPLATE = r"C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2023\templates\gb_part.prtdot"
 MM = 0.001
 
@@ -55,7 +56,9 @@ part.ForceRebuild3(False)
 assert len(part.GetBodies2(0, False)) == 1
 part.ClearSelection2(True)
 for name in ("LoadCell_5kg_75x12p7x7_proxy.SLDPRT", "LoadCell_5kg_75x12p7x7_proxy.STEP"):
-    path = ROOT / name
+    folder = CAD_ROOT / "exports" / "step" if name.endswith(".STEP") else ROOT
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / name
     part.SaveAs3(str(path), 0, 1)
     assert path.exists() and path.stat().st_size > 1000, path
     print(path, path.stat().st_size)

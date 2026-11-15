@@ -4,7 +4,8 @@ from pathlib import Path
 import win32com.client
 import pythoncom
 
-ROOT = Path(__file__).parent
+CAD_ROOT = Path(__file__).resolve().parents[2]
+ROOT = CAD_ROOT / "models"
 TEMPLATE = r"C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2023\templates\gb_assembly.asmdot"
 PARTS = [
     ("Coaster_Base_v4.SLDPRT", 0.0, False),
@@ -57,5 +58,6 @@ out = ROOT / "Smart_Coaster_layout_v5.SLDASM"
 assembly.SaveAs3(str(out), 0, 1)
 assert out.exists() and out.stat().st_size > 10000
 print("saved", out, out.stat().st_size)
-preview = ROOT / "Smart_Coaster_layout_v5.bmp"
+preview = CAD_ROOT / "exports" / "previews" / "Smart_Coaster_layout_v5.bmp"
+preview.parent.mkdir(parents=True, exist_ok=True)
 print("preview", assembly.SaveBMP(str(preview), 1200, 900), preview.exists())

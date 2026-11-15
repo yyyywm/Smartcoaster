@@ -60,6 +60,7 @@ reminder_images/
 *.sldprt~
 *.sldasm~
 /cad/*.bmp
+/cad/exports/previews/
 
 # Optional reference model: redistribution license not verified
 /cad/references/*.step

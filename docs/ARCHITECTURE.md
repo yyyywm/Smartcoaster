@@ -57,4 +57,6 @@ HX711 → 固件状态机 → USB JSON Lines → SerialFeed → 消息队列
 
 ## CAD
 
-原生模型与装配保留在同一目录，避免破坏相对引用。当前装配是布局检查用，尚无完整螺钉、电子板和装配约束；STL 不替代原生模型。
+当前原生设计集中在 `cad/models/`，历史设计在 `cad/archive/`；每个目录内的装配与其零件放在一起，均已更新引用并验证复制后可加载。导出文件在 `cad/exports/`，旧脚本放在 `cad/scripts/legacy/`。日常 SolidWorks 操作默认使用 MCP，见 `cad/AGENTS.md`。
+
+当前装配是布局检查用，尚无完整螺钉、电子板和装配约束；STL 不替代原生模型。

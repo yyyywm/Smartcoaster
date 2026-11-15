@@ -8,7 +8,7 @@ from pathlib import Path
 import win32com.client
 import pythoncom
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2] / "models"
 TEMPLATE = r"C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2023\templates\gb_part.prtdot"
 MM = 0.001
 
